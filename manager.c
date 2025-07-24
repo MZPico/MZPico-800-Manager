@@ -4,13 +4,8 @@
 #include <input.h>
 #include <string.h>
 
-#include "mz800pico_manager_console.h"
-
-typedef struct {
-  char isDir;
-  char filename[32];
-  uint32_t size;
-} DIR_ENTRY;
+#include "console.h"
+#include "mz-comm.h"
 
 DIR_ENTRY entries[930];
 #define VISIBLE_ENTRIES 21
@@ -19,119 +14,6 @@ uint16_t file_selected;
 uint16_t file_offset;
 char path[255];
 
-void read_and_execute(void) __naked {
-  __asm
-    PUBLIC _read_and_execute_start
-    PUBLIC _read_and_execute_end
-_read_and_execute_start:
-    call 0xe729     ; header crc check
-    ret nz          ; header crc failed
-    in a, (c)
-    inc c
-    ld hl, 0x1102   ; start of working area
-    ld b, 9         ; 9 bytes in header
-    inir
-    ld de, (0x1102) ; file size
-    ld hl, 0x1200
-    ld a,e
-    or a
-    jr z, no_part
-    ld b,a
-inir_loop:
-    inir
-no_part:
-    ld b,0
-    ld a, d
-    or a
-    jr z, inir_exit
-    dec d
-    jr inir_loop
-inir_exit:
-    ld de, 0x1200
-    ld bc, (0x1102)
-    call 0xe70e     ; rdcrc
-    ld de, (0x1108)
-    or a
-    sbc hl, de
-    jp nz, 0xeb24        ; body crc failed
-    ld bc, 0
-    exx
-    ld hl, 0x1102
-    jp 0xecfc     ; relocate and execute
-_read_and_execute_end:
-  __endasm;
-}
-
-extern uint8_t read_and_execute_start[];
-extern uint8_t read_and_execute_end[];
-
-void relocate_and_execute(void) {
-    uint8_t *dst = (uint8_t *)0x1108;
-    uint8_t *src = read_and_execute_start;
-    uint16_t size = read_and_execute_end - read_and_execute_start;
-
-    memcpy(dst, src, size);
-
-    void (*relocated_read_and_execute)(void) = (void (*)(void))dst;
-__asm
-    ld c, 0x46
-__endasm
-    relocated_read_and_execute();
-}
-
-
-void exec_command(uint8_t command) __naked {
-  __asm
-    pop hl
-    pop de
-    ld a, e
-    out (0x40), a
-    push de
-    push hl
-    ret
-  __endasm;
-}
-
-void set_command_data(uint8_t data) __naked {
-  __asm
-    pop hl
-    pop de
-    ld a, e
-    out (0x41), a
-    push de
-    push hl
-    ret
-  __endasm;
-}
-
-uint8_t get_command_status(void) {
-  __asm
-    in a, (0x40)
-    ld h, 0
-    ld l, a
-  __endasm;
-}
-
-
-uint8_t get_command_data(void) {
-  __asm
-    in a, (0x41)
-    ld h, 0
-    ld l, a
-  __endasm;
-}
-
-uint8_t reset_command_data(void) {
-  __asm
-    in a, (0x42)
-  __endasm;
-}
-void set_command_path(char *dir) {
-  reset_command_data();
-  for (uint16_t i=0; dir[i] != 0; i++)
-    set_command_data(dir[i]);
-  set_command_data(0);
-}
 
 void read_dir(char *path) {
 #ifdef MZ800PICO_TEST
@@ -207,19 +89,7 @@ void read_dir(char *path) {
   entries[dir_items].isDir = 0;
   strcpy(entries[dir_items++].filename, "SUBMARINE30.MZF");
 #else
-  uint16_t i;
-  uint8_t j;
-  uint8_t *dst;
-  set_command_path(path);
-  exec_command(1);
-  while (get_command_status() != 0x03);
-  dir_items = get_command_data();
-  dir_items += get_command_data() <<8;
-  for (i=0; i<dir_items; i++) {
-    dst = (uint8_t*)entries[i];
-    for (j=0; j<sizeof(DIR_ENTRY); j++)
-      *dst++ = get_command_data();
-  }
+  list_dir(path, &dir_items, entries);
 #endif
 }
 
@@ -342,11 +212,11 @@ void select_file(uint8_t index) {
         }
     } else if ((index > file_offset + VISIBLE_ENTRIES - 2) && (index < dir_items - 1)) {
         file_offset = index - VISIBLE_ENTRIES + 2;
-        scroll_up();
+        scroll_up(3,20);
         display_item(file_offset + VISIBLE_ENTRIES - 1, 22);
     } else if ((index < file_offset + 1) && (index > 0)) {
         file_offset = index - 1;
-        scroll_down();
+        scroll_down(3,20);
         display_item(file_offset, 2);
     }
 
@@ -440,12 +310,13 @@ void execute_selection(void) {
     put_str_xy(7, 10, "LOADING");
     put_str_xy(15, 10, entries[file_selected].filename);
 #ifndef MZ800PICO_TEST
-    set_command_data(file_selected & 0x00ff); 
-    set_command_data(file_selected >> 8); 
-    exec_command(0x03);
-    while (get_command_status() != 0x03);
+    if (path[strlen(path) - 1] != '/') {
+      strcat(path, "/");
+    }
+    strncat(path, entries[file_selected].filename, sizeof(path) - strlen(path) - 1);
+    mount_entry(path);
 #endif
-    relocate_and_execute();
+    read_and_execute();
   };
 }
 

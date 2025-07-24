@@ -6,15 +6,16 @@ project(MZPico-800-Manager C)
 find_program(ZCC_EXECUTABLE z88dk.zcc)
 
 if(NOT ZCC_EXECUTABLE)
-    message(FATAL_ERROR "zcc not found. Make sure z88dk is installed and z88dk.zcc is in your PATH.")
+    message(FATAL_ERROR "z88dk.zcc not found. Make sure z88dk is installed and z88dk.zcc is in your PATH.")
 endif()
 
 # Enable optional define
 option(ENABLE_TEST "Enable test mode" OFF)
 
 set(SOURCE
-    "${CMAKE_SOURCE_DIR}/mz800pico_manager.c"
-    "${CMAKE_SOURCE_DIR}/mz800pico_manager_console.c"
+    "${CMAKE_SOURCE_DIR}/mz-comm.c"
+    "${CMAKE_SOURCE_DIR}/console.c"
+    "${CMAKE_SOURCE_DIR}/manager.c"
 )
 
 # Output binary name

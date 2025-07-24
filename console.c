@@ -4,7 +4,7 @@
 #include <input.h>
 #include <string.h>
 
-#include "mz800pico_manager_console.h"
+#include "console.h"
 
 
 uint8_t vram_codes[256] = {
@@ -248,54 +248,132 @@ void clrscr(void) __naked {
     __endasm;
 }
 
-void scroll_down(void) __naked {
-    __asm
-        ld hl, 0xd000 + 22*40 -1
-        ld de, 0xd000 + 23*40 -1
-        ld bc, 20*40
+void scroll_down(uint8_t first, uint8_t number) __naked {
+  __asm
+    push iy
+    ld iy, 4
+    add iy, sp
+
+    ;ld hl, 0xd000 + 22*40 -1
+    ;ld de, 0xd000 + 23*40 -1
+    ;ld bc, 20*40
+
+    ; Load number into a, store in b
+    ld a, (iy+0)
+    ld b, a        ; b = number
+
+    ; Load first into e
+    ld e, (iy+2)
+
+    ; Compute a = first + number - 1
+    add a, e       ; a = first + number
+    dec a          ; a = first + number - 1
+    ld e, a
+    call __multiply40
+    ; hl = (first + number - 1) * 40
+    ld de, 0xd000
+    add hl, de     ; hl = source = 0xd000 + offset
+    dec hl         ; hl = hl - 1
+
+    ; de = destination = hl + 40
+    push hl
+    pop de
+    ld bc, 40
+    add hl, bc     ; hl += 40 → hl = dest + 1
+    ex de, hl      ; de = dest = src + 40, hl = src
+
+    ; Compute bc = number * 40
+    push hl
+    push de
+    ld a, b
+    ld e, a
+    call __multiply40
+    ; hl = number * 40
+    ld b, h
+    ld c, l
+    pop de
+    pop hl
+
 scroll_down_loop:
-        ld a, (hl)
-        ld (de), a
-        dec hl
-        dec de
-        dec bc
-        ld a,b
-        or c
-        jr nz, scroll_down_loop
-        ret
-    __endasm;
+    ld a, (hl)
+    ld (de), a
+    dec hl
+    dec de
+    dec bc
+    ld a,b
+    or c
+    jr nz, scroll_down_loop
+
+    pop iy
+    ret
+  __endasm;
 }
 
-void scroll_up(void) __naked {
-    __asm
-       ld hl, 0xd000 + 3*40
-       ld de, 0xd000 + 2*40
-       ld bc, 20*40
+void scroll_up(uint8_t first, uint8_t number) __naked {
+  __asm
+    push iy
+    ld iy, 4
+    add iy, sp
+
+    ;ld hl, 0xd000 + 3*40
+    ;ld de, 0xd000 + 2*40
+    ;ld bc, 20*40
+
+    ; Load number into a, store in b
+    ld a, (iy+0)
+    ld b, a        ; b = number
+
+    ; Load first into e
+    ld e, (iy+2)
+
+    ; Compute de = 0xD000 + first * 40
+    call __multiply40
+    ld de, 0xd000
+    add hl, de     ; hl = dest
+    ex de, hl      ; de = dest
+
+    ; hl = de + 40 = src
+    ld bc, 40
+    add hl, bc     ; hl = source
+
+    ; Compute bc = number * 40
+    push hl
+    push de
+    ld a, b
+    ld e, a
+    call __multiply40
+    ld b, h
+    ld c, l
+    pop de
+    pop hl
+
 scroll_up_loop:
-       ld a, (hl)
-       ld (de), a
-       inc hl
-       inc de
-       dec bc
-       ld a, b
-       or c
-       jr nz, scroll_up_loop
-       ret
-    __endasm;
+    ld a, (hl)
+    ld (de), a
+    inc hl
+    inc de
+    dec bc
+    ld a, b
+    or c
+    jr nz, scroll_up_loop
+
+    pop iy
+    ret
+  __endasm;
 }
 
 void border(uint8_t color) __naked {
   __asm
-        push iy
-        ld iy, 4
-        add iy, sp
+    push iy
+    ld iy, 4
+    add iy, sp
 
-        ld bc, 0x06cf
-        ld a, (iy+0)
-        out (c), a
+    ld bc, 0x06cf
+    ld a, (iy+0)
+    out (c), a
 
-        pop iy
-        ret
+    pop iy
+    ret
   __endasm;
 }
 
