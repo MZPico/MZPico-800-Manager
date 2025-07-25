@@ -293,7 +293,7 @@ void execute_selection(void) {
     return;
   if (entries[file_selected].isDir) {
     if (strcmp(entries[file_selected].filename, "..") == 0) {
-      remove_last_dir(path);   
+      remove_last_dir(path);
     } else {
       if (path[strlen(path) - 1] != '/') {
         strcat(path, "/");

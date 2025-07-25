@@ -285,8 +285,7 @@ void scroll_down(uint8_t first, uint8_t number) __naked {
     ; Compute bc = number * 40
     push hl
     push de
-    ld a, b
-    ld e, a
+    ld e, (iy+0)
     call __multiply40
     ; hl = number * 40
     ld b, h
@@ -320,17 +319,18 @@ void scroll_up(uint8_t first, uint8_t number) __naked {
     ;ld bc, 20*40
 
     ; Load number into a, store in b
-    ld a, (iy+0)
-    ld b, a        ; b = number
+    ld b, (iy+0)
 
     ; Load first into e
     ld e, (iy+2)
 
+    dec e
     ; Compute de = 0xD000 + first * 40
     call __multiply40
     ld de, 0xd000
     add hl, de     ; hl = dest
-    ex de, hl      ; de = dest
+    push hl
+    pop de
 
     ; hl = de + 40 = src
     ld bc, 40
@@ -339,8 +339,7 @@ void scroll_up(uint8_t first, uint8_t number) __naked {
     ; Compute bc = number * 40
     push hl
     push de
-    ld a, b
-    ld e, a
+    ld e, (iy+0)
     call __multiply40
     ld b, h
     ld c, l
