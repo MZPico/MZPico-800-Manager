@@ -4,9 +4,7 @@
 #define MZF_HEADER_START 0x10f0
 #define MZF_BODY_TARGET 0x1200
 #define MZF_SIZE (MZF_BODY_TARGET + 0x12)
-#define LOADER_TARGET 0x0000
-#define FINAL_EXEC 0x1000
-
+#define LOADER_TARGET 0x1000
 
 char error_description[ERROR_DESCRIPTION_LN];
 
@@ -157,7 +155,6 @@ uint8_t mount_entry(char *path) {
 void read_and_execute(void) __naked {
   __asm
     ld sp, MZF_HEADER_START
-    out (0xe0), a
 
     ld hl, _read_and_execute_start
     ld de, LOADER_TARGET
@@ -190,14 +187,6 @@ _re_read_remaining:
     inir
 
 _re_done:
-    ld de, FINAL_EXEC
-    ld hl, LOADER_TARGET + _exec_start - _read_and_execute_start
-    ld bc, _read_and_execute_end - _exec_start
-    ldir
-    jp FINAL_EXEC
-
-_exec_start:
-    out (0xe4), a
     exx
     ld bc,0x0500
     exx
