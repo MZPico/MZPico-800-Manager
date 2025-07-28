@@ -1,0 +1,59 @@
+name: Create release on version tag
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_run:
+    workflows: ["Trigger a release"]
+    types:
+      - completed
+
+jobs:
+  create_github_release:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Z88DK Toolchain setup↲
+        run: |↲
+          sudo snap install z88dk --beta↲
+
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Fetch tags
+        run: git fetch --tags
+
+      - name: Get latest tag
+        run: |
+          TAG=$(git log -1 --pretty=%B | grep -oE "v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?")
+          echo "Version tag detected: $TAG"
+          echo "VERSION=$TAG" >> $GITHUB_ENV
+
+      - name: Create build directory↲
+        run: |↲
+          mkdir build↲
+
+      - name: Run CMake↲
+        run: |↲
+          cmake ..↲
+        working-directory: build↲
+
+      - name: Build with make↲
+        run: |↲
+          make↲
+        working-directory: build
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: ${{ env.VERSION }}
+          tag_name: ${{ env.VERSION }}
+          generate_release_notes: true
+          draft: true
+          files: |
+            build/mzpico800.mzf
