@@ -23,9 +23,9 @@ jobs:
       - name: Fetch tags
         run: git fetch --tags
 
-      - name: Get latest tag
+      - name: Get tag that triggered the workflow
         run: |
-          TAG=$(git log -1 --pretty=%B | grep -oE "v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?")
+          TAG=${GITHUB_REF#refs/tags/}
           echo "Version tag detected: $TAG"
           echo "VERSION=$TAG" >> $GITHUB_ENV
 
