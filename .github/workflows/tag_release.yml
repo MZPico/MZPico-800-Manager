@@ -30,18 +30,18 @@ jobs:
           echo "Version tag detected: $TAG"
           echo "VERSION=$TAG" >> $GITHUB_ENV
 
-      - name: Create build directory↲
-        run: |↲
-          mkdir build↲
+      - name: Create build directory
+        run: |
+          mkdir build
 
-      - name: Run CMake↲
-        run: |↲
-          cmake ..↲
-        working-directory: build↲
+      - name: Run CMake
+        run: |
+          cmake ..
+        working-directory: build
 
-      - name: Build with make↲
-        run: |↲
-          make↲
+      - name: Build with make
+        run: |
+          make
         working-directory: build
 
       - name: Create Release
