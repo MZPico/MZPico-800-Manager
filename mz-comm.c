@@ -188,7 +188,7 @@ _re_read_remaining:
 
 _re_done:
     exx
-    ld bc,0x0500
+    ld bc,0x0600
     exx
     ld hl, MZF_SIZE
     ld sp, MZF_HEADER_START

@@ -15,6 +15,7 @@ option(ENABLE_TEST "Enable test mode" OFF)
 set(SOURCE
     "${CMAKE_SOURCE_DIR}/mz-comm.c"
     "${CMAKE_SOURCE_DIR}/console.c"
+    "${CMAKE_SOURCE_DIR}/explorer.c"
     "${CMAKE_SOURCE_DIR}/manager.c"
 )
 

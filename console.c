@@ -217,15 +217,21 @@ void put_multi_attr_xy(uint8_t x, uint8_t y, uint8_t attr, uint8_t cnt) __naked 
         ld d, 0xD8      ; d8000 - start of attribute vram
         add hl, de
 
+        ld c, (iy+0)    ; cnt
+        ld a, c
+        or a
+        jr z, pmay_finish
+
         ld de, hl
         inc de          ; setup for ldir
 
-        ld c, (iy+2)
-        ld (hl), c      ; 1st attr
-        ld c, (iy+0)    ; cnt
+        ld b, (iy+2)
+        ld (hl), b      ; 1st attr
         dec c
+        jr z, pmay_finish
         ld b, 0
         ldir            ; copy from the 1st attr on
+pmay_finish:
         pop iy
         ret
     __endasm;
@@ -376,13 +382,34 @@ void border(uint8_t color) __naked {
   __endasm;
 }
 
+uint8_t scan_fkeys(void) {
+  __asm
+    ld a, 0xf9
+    ld (0xe000), a
+    ld a, (0xe001)
+    cpl
+    ld l, a
+    ld h, 0
+  __endasm;
+}
+
 uint8_t inkey(void) {
   static uint8_t autorepeat_trigger;
   static uint8_t autorepeat_speed;
   static uint8_t curr_key;
   uint8_t c;
 
-  c = getk();
+  c = scan_fkeys();
+
+  if      (c & 0x80) c = 1;
+  else if (c & 0x40) c = 2;
+  else if (c & 0x20) c = 3;
+  else if (c & 0x10) c = 4;
+  else if (c & 0x08) c = 5;
+  else               c = 0;
+
+  if (!c)
+    c = getk();
   if (c != 0) {
     if (curr_key == c) {
       if (autorepeat_trigger <= 50) {
