@@ -3,10 +3,6 @@ on:
   push:
     tags:
       - 'v*.*.*'
-  workflow_run:
-    workflows: ["Trigger a release"]
-    types:
-      - completed
 
 jobs:
   create_github_release:
@@ -16,9 +12,9 @@ jobs:
       contents: write
       actions: read
     steps:
-      - name: Z88DK Toolchain setup↲
-        run: |↲
-          sudo snap install z88dk --beta↲
+      - name: Z88DK Toolchain setup
+        run: |
+          sudo snap install z88dk --beta
 
       - name: Checkout Repository
         uses: actions/checkout@v4
