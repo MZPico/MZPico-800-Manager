@@ -297,6 +297,8 @@ void remove_last_dir(char *path) {
 }
 
 void execute_selection(void) {
+  uint8_t i;
+
   if (dir_items == 0)
     return;
   if (entries[file_selected].isDir) {
@@ -314,6 +316,10 @@ void execute_selection(void) {
     display_items(0);
     select_file(0); 
   } else {
+    for (i=0; i<255; i++) {
+      put_multi_attr_xy(1, file_selected - file_offset +2, 0x16, 38);
+      put_multi_attr_xy(1, file_selected - file_offset +2, 0x61, 38);
+    };
     border(0);
     clrscr();
     put_str_xy(7, 10, "LOADING");
