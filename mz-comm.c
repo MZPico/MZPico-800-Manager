@@ -1,9 +1,10 @@
+#include <stdio.h>
 #include <string.h>
 #include "mz-comm.h"
 
 #define MZF_HEADER_START 0x10f0
 #define MZF_BODY_TARGET 0x1200
-#define MZF_SIZE (MZF_BODY_TARGET + 0x12)
+#define MZF_SIZE MZF_HEADER_START + 0x12
 #define LOADER_TARGET 0x1000
 
 char error_description[ERROR_DESCRIPTION_LN];
@@ -14,7 +15,7 @@ void _exec_command(uint8_t command) __naked {
     ld iy, 4
     add iy, sp
 
-    ld a, (iy+4)
+    ld a, (iy+0)
     out (COMMAND_PORT), a
 
     pop iy
@@ -41,6 +42,12 @@ void _feed_params(uint16_t ln, void *data) __naked {
     ld h, (iy+1)          ; Load data pointer (high)
     ld e, (iy+2)          ; Load length (low byte)
     ld d, (iy+3)          ; Load length (high byte)
+
+    in a, (0x42)
+    ld a, e
+    out (0x41), a
+    ld a, d
+    out (0x41), a
 
     ; Send full 256-byte blocks via OTIR
 _fp_send_blocks:
@@ -70,7 +77,9 @@ void _get_params(uint16_t *ln, void *data) __naked {
     ld iy, 4
     add iy, sp
 
-    ld c, 0x41       ; Port to write to
+    in a, (0x42)
+
+    ld c, 0x41       ; Port to read from
     ld l, (iy+2)          ; Load ln pointer (low)
     ld h, (iy+3)          ; Load ln pointer (high)
 
@@ -109,15 +118,17 @@ _gp_done:
 
 uint8_t execute_command(uint8_t command, comm_params_t *in_params, comm_params_t *out_params) {
   uint16_t err_ln;
-  if (in_params)
+  if (in_params) {
     _feed_params(in_params->ln, in_params->data);
+  }
   _exec_command(command);
   while (_get_command_status() == COMMAND_RESULT_ACCEPTED);
   while (_get_command_status() == COMMAND_RESULT_IN_PROGRESS);
   uint8_t result = _get_command_status();
-  if (result == COMMAND_RESULT_ERR)
-    _get_params(err_ln, error_description);
+  if (result == COMMAND_RESULT_ERR) {
+    _get_params(&err_ln, error_description);
     return result;
+  }
   if (out_params)
     _get_params(&out_params->ln, out_params->data);
   return 0;
@@ -135,7 +146,7 @@ uint8_t list_dir(char *path, uint16_t *entries_cnt, DIR_ENTRY *entries) {
   ret = execute_command(REPO_CMD_LIST_DIR, &input, &output);
   if (ret)
     return ret;
-  *entries_cnt = output.ln;
+  *entries_cnt = output.ln / sizeof(DIR_ENTRY);
   return 0;
 }
 
@@ -160,6 +171,8 @@ void read_and_execute(void) __naked {
     ld de, LOADER_TARGET
     ld bc, _read_and_execute_end - _read_and_execute_start
     ldir
+    in a, (0x41)
+    in a, (0x41)         ; skip 2 inital bytes - size
     jp LOADER_TARGET
 
 _read_and_execute_start:

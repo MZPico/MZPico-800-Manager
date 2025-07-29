@@ -20,6 +20,7 @@ char path[255];
 
 
 void read_dir(char *path) {
+  uint8_t ret;
 #ifdef MZ800PICO_TEST
   dir_items = 0;
   entries[dir_items].isDir = 0;
@@ -27,11 +28,11 @@ void read_dir(char *path) {
   strcpy(entries[dir_items++].filename, "MZ1Z016.MZF");
   entries[dir_items].isDir = 0;
   entries[dir_items].size = 43721;
-  strcpy(entries[dir_items++].filename, "FLAPPY.MZF");
+  strcpy(entries[dir_items++].filename, "Flappy.mzf");
   entries[dir_items].isDir = 0;
-  strcpy(entries[dir_items++].filename, "NAKAMOTO.MZF");
+  strcpy(entries[dir_items++].filename, "Nakamoto.MZF");
   entries[dir_items].isDir = 0;
-  strcpy(entries[dir_items++].filename, "THEDROP.MZF");
+  strcpy(entries[dir_items++].filename, "thedrop.MZF");
   entries[dir_items].isDir = 0;
   strcpy(entries[dir_items++].filename, "SUBMARINE1.MZF");
   entries[dir_items].isDir = 0;
@@ -55,13 +56,13 @@ void read_dir(char *path) {
   entries[dir_items].isDir = 0;
   strcpy(entries[dir_items++].filename, "SUBMARINE11.MZF");
   entries[dir_items].isDir = 0;
-  strcpy(entries[dir_items++].filename, "SUBMARINE12.MZF");
+  strcpy(entries[dir_items++].filename, "Submarine12.MZF");
   entries[dir_items].isDir = 0;
   strcpy(entries[dir_items++].filename, "SUBMARINE13.MZF");
   entries[dir_items].isDir = 0;
   strcpy(entries[dir_items++].filename, "SUBMARINE14.MZF");
   entries[dir_items].isDir = 0;
-  strcpy(entries[dir_items++].filename, "SUBMARINE15.MZF");
+  strcpy(entries[dir_items++].filename, "submarine15.MZF");
   entries[dir_items].isDir = 0;
   strcpy(entries[dir_items++].filename, "SUBMARINE16.MZF");
   entries[dir_items].isDir = 0;
@@ -93,7 +94,11 @@ void read_dir(char *path) {
   entries[dir_items].isDir = 0;
   strcpy(entries[dir_items++].filename, "SUBMARINE30.MZF");
 #else
-  list_dir(path, &dir_items, entries);
+  ret = list_dir(path, &dir_items, entries);
+  if (ret)
+  {
+    put_str_xy(15, 23, error_description);
+  }
 #endif
 }
 
@@ -298,6 +303,7 @@ void remove_last_dir(char *path) {
 
 void execute_selection(void) {
   uint8_t i;
+  uint8_t ret=0;
 
   if (dir_items == 0)
     return;
@@ -329,9 +335,12 @@ void execute_selection(void) {
       strcat(path, "/");
     }
     strncat(path, entries[file_selected].filename, sizeof(path) - strlen(path) - 1);
-    mount_entry(path);
+    ret = mount_entry(path);
 #endif
-    read_and_execute();
+    if (ret)
+      put_str_xy(15, 23, error_description);
+    else
+      read_and_execute();
   };
 }
 
