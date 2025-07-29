@@ -344,6 +344,20 @@ void execute_selection(void) {
   };
 }
 
+int strnicmp(const char *s1, const char *s2, size_t n) {
+    while (n-- > 0) {
+        char c1 = tolower((unsigned char)*s1++);
+        char c2 = tolower((unsigned char)*s2++);
+        if (c1 != c2) {
+            return (unsigned char)c1 - (unsigned char)c2;
+        }
+        if (c1 == '\0') {
+            break;
+        }
+    }
+    return 0;
+}
+
 void search(char c) {
   uint16_t i;
 
@@ -353,7 +367,7 @@ void search(char c) {
 
   search_str[search_ln] = c;
   while (i<dir_items) {
-    if (!strncmp(search_str, toupper(entries[i].filename), search_ln+1)) {
+    if (!strnicmp(search_str, entries[i].filename, search_ln+1)) {
       search_ln++;
       select_file(i);
       break;
