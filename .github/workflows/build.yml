@@ -13,7 +13,7 @@ jobs:
 
     - name: Z88DK Toolchain setup
       run: |
-        sudo snap install z88dk --beta
+        sudo snap install z88dk --edge
 
     - name: Create build directory
       run: |
