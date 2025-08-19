@@ -209,3 +209,17 @@ _re_done:
 _read_and_execute_end:
   __endasm;
 }
+
+void execute_floppy(void) __naked {
+  __asm
+    ld sp, MZF_HEADER_START
+    jp 0xe44a
+  __endasm;
+}
+
+void execute_quickdisk(void) __naked {
+  __asm
+    ld sp, MZF_HEADER_START
+    jp 0xe9b7
+  __endasm;
+}

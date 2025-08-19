@@ -42,5 +42,6 @@ void clrscr(void);
 void scroll_down(uint8_t first, uint8_t number);
 void scroll_up(uint8_t first, uint8_t number);
 uint8_t inkey(void);
+void beep(void);
 
 #endif

@@ -42,5 +42,7 @@ uint8_t execute_command(uint8_t command, comm_params_t *in_params, comm_params_t
 uint8_t list_dir(char *path, uint16_t *entries_cnt, DIR_ENTRY *entries);
 uint8_t mount_entry(char *path);
 void read_and_execute(void);
+void execute_floppy(void);
+void execute_quickdisk(void);
 
 #endif

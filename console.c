@@ -382,6 +382,12 @@ void border(uint8_t color) __naked {
   __endasm;
 }
 
+void beep(void) __naked {
+  __asm
+    jp 0x0577
+  __endasm;
+}
+
 uint8_t scan_fkeys(void) {
   __asm
     ld a, 0xf9

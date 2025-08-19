@@ -301,21 +301,40 @@ void remove_last_dir(char *path) {
   }
 }
 
+void get_uppercase_extension(const char* filename, char* extension) {
+  const char* dot = strrchr(filename, '.');
+  if (!dot || dot == filename) {
+    extension[0] = '\0';
+    return;
+  }
+
+  dot++;
+  while (*dot) {
+    *extension++ = toupper((unsigned char)*dot);
+    dot++;
+  }
+  *extension = '\0';
+}
+
 void execute_selection(void) {
   uint8_t i;
   uint8_t ret=0;
+  char extension[16];
+  char *filename;
 
   if (dir_items == 0)
     return;
+
+  filename = entries[file_selected].filename;
   if (entries[file_selected].isDir) {
     search_ln = 0;
-    if (strcmp(entries[file_selected].filename, "..") == 0) {
+    if (strcmp(filename, "..") == 0) {
       remove_last_dir(path);
     } else {
       if (path[strlen(path) - 1] != '/') {
         strcat(path, "/");
       }
-      strncat(path, entries[file_selected].filename, sizeof(path) - strlen(path) - 1);
+      strncat(path, filename, sizeof(path) - strlen(path) - 1);
     };
     display_path(path);
     read_dir(path);
@@ -329,19 +348,26 @@ void execute_selection(void) {
     border(0);
     clrscr();
     put_str_xy(7, 10, "LOADING");
-    put_str_xy(15, 10, entries[file_selected].filename);
+    put_str_xy(15, 10, filename);
 #ifndef MZ800PICO_TEST
     if (path[strlen(path) - 1] != '/') {
       strcat(path, "/");
     }
-    strncat(path, entries[file_selected].filename, sizeof(path) - strlen(path) - 1);
+    strncat(path, filename, sizeof(path) - strlen(path) - 1);
     ret = mount_entry(path);
 #endif
-    if (ret)
+    if (ret) {
       put_str_xy(15, 23, error_description);
-    else
+      return;
+    }
+    get_uppercase_extension(filename, extension);
+    if (!strcmp(extension, "MZF") || !strcmp(extension, "M12"))
       read_and_execute();
-  };
+    else if (!strcmp(extension, "DSK"))
+      execute_floppy();
+    else if (!strcmp(extension, "MZQ"))
+      execute_quickdisk();
+  }
 }
 
 int strnicmp(const char *s1, const char *s2, size_t n) {

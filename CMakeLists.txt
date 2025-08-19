@@ -17,6 +17,8 @@ set(SOURCE
     "${CMAKE_SOURCE_DIR}/console.c"
     "${CMAKE_SOURCE_DIR}/explorer.c"
     "${CMAKE_SOURCE_DIR}/manager.c"
+    "${CMAKE_SOURCE_DIR}/menu.c"
+    "${CMAKE_SOURCE_DIR}/setup.c"
 )
 
 # Output binary name
