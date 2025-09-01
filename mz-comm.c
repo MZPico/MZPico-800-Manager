@@ -43,7 +43,7 @@ void _feed_params(uint16_t ln, void *data) __naked {
     ld e, (iy+2)          ; Load length (low byte)
     ld d, (iy+3)          ; Load length (high byte)
 
-    in a, (0x42)
+    out (0x44), a
     ld a, e
     out (0x41), a
     ld a, d
@@ -77,7 +77,7 @@ void _get_params(uint16_t *ln, void *data) __naked {
     ld iy, 4
     add iy, sp
 
-    in a, (0x42)
+    out (0x44), a
 
     ld c, 0x41       ; Port to read from
     ld l, (iy+2)          ; Load ln pointer (low)
@@ -136,7 +136,6 @@ uint8_t execute_command(uint8_t command, comm_params_t *in_params, comm_params_t
 
 uint8_t list_dir(char *path, uint16_t *entries_cnt, DIR_ENTRY *entries) {
   uint8_t ret;
-
   comm_params_t input;
   comm_params_t output;
 
@@ -147,6 +146,18 @@ uint8_t list_dir(char *path, uint16_t *entries_cnt, DIR_ENTRY *entries) {
   if (ret)
     return ret;
   *entries_cnt = output.ln / sizeof(DIR_ENTRY);
+  return 0;
+}
+
+uint8_t list_dev(uint16_t *entries_cnt, DEV_ENTRY *entries) {
+  uint8_t ret;
+  comm_params_t output;
+
+  output.data = entries;
+  ret = execute_command(REPO_CMD_LIST_DEV, NULL, &output);
+  if (ret)
+    return ret;
+  *entries_cnt = output.ln / sizeof(DEV_ENTRY);
   return 0;
 }
 

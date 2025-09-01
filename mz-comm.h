@@ -5,6 +5,7 @@
 
 #define COMMAND_PORT 0x40
 #define DATA_PORT 0x41
+#define RESET_PORT 0x44
 
 #define REPO_CMD_LIST_DIR   0x01
 #define REPO_CMD_MOUNT      0x03
@@ -24,11 +25,14 @@
 
 #define ERROR_DESCRIPTION_LN 32
 #define FILENAME_LN 32
+#define DEVICE_LN 8
 
 typedef struct {
   uint16_t ln;
   void *data;
 } comm_params_t;
+
+
 
 typedef struct {
   uint8_t isDir;
@@ -36,10 +40,15 @@ typedef struct {
   uint32_t size;
 } DIR_ENTRY;
 
+typedef struct {
+  char name[DEVICE_LN];
+} DEV_ENTRY;
+
 extern char error_description[ERROR_DESCRIPTION_LN];
 
 uint8_t execute_command(uint8_t command, comm_params_t *in_params, comm_params_t *out_params);
 uint8_t list_dir(char *path, uint16_t *entries_cnt, DIR_ENTRY *entries);
+uint8_t list_dev(uint16_t *entries_cnt, DEV_ENTRY *entries);
 uint8_t mount_entry(char *path);
 void read_and_execute(void);
 void execute_floppy(void);

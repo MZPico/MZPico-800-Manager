@@ -160,7 +160,7 @@ void execute_action_loop(void) {
               display_menu();
             }
           }
-          break;  // stop checking once a match is found
+          break;
         }
       }
     }

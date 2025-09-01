@@ -4,13 +4,17 @@
 #include <input.h>
 #include <string.h>
 #include <ctype.h>
+#include <stdbool.h>
 
 #include "explorer.h"
 #include "console.h"
 #include "mz-comm.h"
 
+DEV_ENTRY devices[MAX_DEVICES];
 DIR_ENTRY entries[MAX_ENTRIES];
 #define VISIBLE_ENTRIES 21
+uint16_t device_selected;
+uint16_t dev_items;
 uint16_t dir_items;
 uint16_t file_selected;
 uint16_t file_offset;
@@ -240,7 +244,7 @@ void select_file(uint8_t index) {
     // Draw new selection indicators
     new_line = index - file_offset + 2;
     put_multi_attr_xy(1, new_line, 0x16, 38);
-    put_multi_attr_xy(1, new_line, 0x02, search_ln);
+    put_multi_attr_xy(entries[index].isDir ? 2 : 1, new_line, 0x02, search_ln);
     put_char_attr_xy(0, new_line, 0xFC, 0xa5);
     put_char_attr_xy(39, new_line, 0xFA, 0xa5);
 
@@ -252,6 +256,17 @@ void select_file(uint8_t index) {
     put_str_xy(1, 23, buff);
 }
 
+void select_filename(char *file) {
+  uint16_t i = 0;
+
+  while (i<dir_items) {
+    if (!strnicmp(file, entries[i].filename, strlen(file))) {
+      select_file(i);
+      break;
+    }
+    i++;
+  }
+}
 
 void select_next(uint8_t delta) {
   if (dir_items == 0)
@@ -274,30 +289,47 @@ void select_prev(uint8_t delta) {
 }
 
 void display_path(char *path) {
-  put_str_xy(17, 1, path);
+  put_str_xy(1, 1, path);
   uint16_t ln = strlen(path);
-  put_multi_char_xy(17+ln, 1, ' ', 21-ln);
+  put_multi_char_xy(ln + 1, 1, ' ', 37 - ln);
 }
 
-void remove_last_dir(char *path) {
+uint8_t is_root_directory(const char *path) {
+    size_t len = strlen(path);
+
+    // Must be at least 3 characters: "x:/"
+    if (len < 3)
+        return 0;
+
+    // Check if the last two characters are ":/"
+    if (path[len - 2] == ':' && path[len - 1] == '/')
+        return 1;
+
+    return 0;
+}
+
+void remove_last_dir(char *path, char *removed) {
   size_t len = strlen(path);
 
   // Remove trailing slash if present (but not if it's the root "/")
-  if (len > 1 && path[len - 1] == '/') {
+  if (!is_root_directory(path) && path[len - 1] == '/') {
     path[len - 1] = '\0';
     len--;
   }
 
   // Find the last slash
   char *last_slash = strrchr(path, '/');
-  if (last_slash && last_slash != path) {
-    *last_slash = '\0';  // Truncate at last slash
+  if (last_slash && last_slash != path && last_slash != path + len - 1) {
+    strcpy(removed, last_slash + 1);  // Copy the last directory name
+    *last_slash = '\0';               // Truncate at last slash
   } else {
-    // Keep root slash, or set to empty if nothing left
-    if (last_slash == path)
-      path[1] = '\0';
-    else
-      path[0] = '\0';
+    removed[0] = '\0';  // Nothing removed
+  }
+
+  len = strlen(path);
+  if (path[len - 1] == ':') {
+    path[len] = '/';
+    path[len + 1] = '\0';
   }
 }
 
@@ -320,6 +352,7 @@ void execute_selection(void) {
   uint8_t i;
   uint8_t ret=0;
   char extension[16];
+  char last_dir[32];
   char *filename;
 
   if (dir_items == 0)
@@ -329,17 +362,21 @@ void execute_selection(void) {
   if (entries[file_selected].isDir) {
     search_ln = 0;
     if (strcmp(filename, "..") == 0) {
-      remove_last_dir(path);
+      remove_last_dir(path, last_dir);
     } else {
       if (path[strlen(path) - 1] != '/') {
         strcat(path, "/");
       }
       strncat(path, filename, sizeof(path) - strlen(path) - 1);
+      last_dir[0] = 0;
     };
     display_path(path);
     read_dir(path);
     display_items(0);
-    select_file(0); 
+    if (last_dir[0] == 0)
+      select_file(0);
+    else
+      select_filename(last_dir);
   } else {
     for (i=0; i<255; i++) {
       put_multi_attr_xy(1, file_selected - file_offset +2, 0x16, 38);
@@ -347,13 +384,14 @@ void execute_selection(void) {
     };
     border(0);
     clrscr();
-    put_str_xy(7, 10, "LOADING");
-    put_str_xy(15, 10, filename);
+    put_str_xy(16, 9, "LOADING");
 #ifndef MZ800PICO_TEST
     if (path[strlen(path) - 1] != '/') {
       strcat(path, "/");
     }
     strncat(path, filename, sizeof(path) - strlen(path) - 1);
+    int ln = strlen(path);
+    put_str_xy(20 - ln / 2, 11, path);
     ret = mount_entry(path);
 #endif
     if (ret) {
@@ -384,6 +422,7 @@ int strnicmp(const char *s1, const char *s2, size_t n) {
     return 0;
 }
 
+
 void search(char c) {
   uint16_t i;
 
@@ -402,14 +441,9 @@ void search(char c) {
   }
 }
 
-void explorer_init(void) {
-  dir_items = 0;
-  file_selected = 0;
-  file_offset = 0;
-  search_ln = 0;
-  strcpy(path, "/");
-
-  put_str_attr_xy(1, 1,  "Device: [Flash]                       ", 0x05);
+void refresh_device(void) {
+  //put_str_attr_xy(1, 1,  "Path:                                 ", 0x05);
+  sprintf(path, "%s:/", devices[device_selected].name);
   display_path(path);
   read_dir(path);
   display_items(0);
@@ -419,8 +453,36 @@ void explorer_init(void) {
     put_str_xy(5, 10, "No files found on this device");
 }
 
+void cycle_device(void) {
+  if (dev_items == 1)
+    return;
+  device_selected++;
+  if (device_selected >= dev_items)
+    device_selected = 0;
+  search_ln = 0;
+  refresh_device();
+}
+
+void explorer_init(void) {
+  dir_items = 0;
+  file_selected = 0;
+  file_offset = 0;
+  search_ln = 0;
+
+  uint8_t ret = list_dev(&dev_items, devices);
+  if (ret) {
+    put_str_xy(15, 23, error_description);
+  }
+
+  device_selected = 0;
+  refresh_device();
+}
+
 void explorer_handle_key(char c) {
   switch (c) {
+    case 0x02:
+      cycle_device();
+      break;
     case 0x11:
       select_next(1);
       break;
