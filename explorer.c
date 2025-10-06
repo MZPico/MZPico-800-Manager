@@ -25,85 +25,11 @@ char path[255];
 
 void read_dir(char *path) {
   uint8_t ret;
-#ifdef MZ800PICO_TEST
-  dir_items = 0;
-  entries[dir_items].isDir = 0;
-  entries[dir_items].size = 15321;
-  strcpy(entries[dir_items++].filename, "MZ1Z016.MZF");
-  entries[dir_items].isDir = 0;
-  entries[dir_items].size = 43721;
-  strcpy(entries[dir_items++].filename, "Flappy.mzf");
-  entries[dir_items].isDir = 0;
-  strcpy(entries[dir_items++].filename, "Nakamoto.MZF");
-  entries[dir_items].isDir = 0;
-  strcpy(entries[dir_items++].filename, "thedrop.MZF");
-  entries[dir_items].isDir = 0;
-  strcpy(entries[dir_items++].filename, "SUBMARINE1.MZF");
-  entries[dir_items].isDir = 0;
-  strcpy(entries[dir_items++].filename, "SUBMARINE2.MZF");
-  entries[dir_items].isDir = 0;
-  strcpy(entries[dir_items++].filename, "SUBMARINE3.MZF");
-  entries[dir_items].isDir = 0;
-  strcpy(entries[dir_items++].filename, "SUBMARINE4.MZF");
-  entries[dir_items].isDir = 0;
-  strcpy(entries[dir_items++].filename, "SUBMARINE5.MZF");
-  entries[dir_items].isDir = 0;
-  strcpy(entries[dir_items++].filename, "SUBMARINE6.MZF");
-  entries[dir_items].isDir = 0;
-  strcpy(entries[dir_items++].filename, "SUBMARINE7.MZF");
-  entries[dir_items].isDir = 0;
-  strcpy(entries[dir_items++].filename, "SUBMARINE8.MZF");
-  entries[dir_items].isDir = 0;
-  strcpy(entries[dir_items++].filename, "SUBMARINE9.MZF");
-  entries[dir_items].isDir = 0;
-  strcpy(entries[dir_items++].filename, "SUBMARINE10.MZF");
-  entries[dir_items].isDir = 0;
-  strcpy(entries[dir_items++].filename, "SUBMARINE11.MZF");
-  entries[dir_items].isDir = 0;
-  strcpy(entries[dir_items++].filename, "Submarine12.MZF");
-  entries[dir_items].isDir = 0;
-  strcpy(entries[dir_items++].filename, "SUBMARINE13.MZF");
-  entries[dir_items].isDir = 0;
-  strcpy(entries[dir_items++].filename, "SUBMARINE14.MZF");
-  entries[dir_items].isDir = 0;
-  strcpy(entries[dir_items++].filename, "submarine15.MZF");
-  entries[dir_items].isDir = 0;
-  strcpy(entries[dir_items++].filename, "SUBMARINE16.MZF");
-  entries[dir_items].isDir = 0;
-  strcpy(entries[dir_items++].filename, "SUBMARINE17.MZF");
-  entries[dir_items].isDir = 0;
-  strcpy(entries[dir_items++].filename, "SUBMARINE18.MZF");
-  entries[dir_items].isDir = 0;
-  strcpy(entries[dir_items++].filename, "SUBMARINE19.MZF");
-  entries[dir_items].isDir = 0;
-  strcpy(entries[dir_items++].filename, "SUBMARINE20.MZF");
-  entries[dir_items].isDir = 0;
-  strcpy(entries[dir_items++].filename, "SUBMARINE21.MZF");
-  entries[dir_items].isDir = 0;
-  strcpy(entries[dir_items++].filename, "SUBMARINE22.MZF");
-  entries[dir_items].isDir = 0;
-  strcpy(entries[dir_items++].filename, "SUBMARINE23.MZF");
-  entries[dir_items].isDir = 0;
-  strcpy(entries[dir_items++].filename, "SUBMARINE24.MZF");
-  entries[dir_items].isDir = 0;
-  strcpy(entries[dir_items++].filename, "SUBMARINE25.MZF");
-  entries[dir_items].isDir = 0;
-  strcpy(entries[dir_items++].filename, "SUBMARINE26.MZF");
-  entries[dir_items].isDir = 0;
-  strcpy(entries[dir_items++].filename, "SUBMARINE27.MZF");
-  entries[dir_items].isDir = 0;
-  strcpy(entries[dir_items++].filename, "SUBMARINE28.MZF");
-  entries[dir_items].isDir = 0;
-  strcpy(entries[dir_items++].filename, "SUBMARINE29.MZF");
-  entries[dir_items].isDir = 0;
-  strcpy(entries[dir_items++].filename, "SUBMARINE30.MZF");
-#else
   ret = list_dir(path, &dir_items, entries);
   if (ret)
   {
     put_str_xy(15, 23, error_description);
   }
-#endif
 }
 
 
@@ -333,21 +259,6 @@ void remove_last_dir(char *path, char *removed) {
   }
 }
 
-void get_uppercase_extension(const char* filename, char* extension) {
-  const char* dot = strrchr(filename, '.');
-  if (!dot || dot == filename) {
-    extension[0] = '\0';
-    return;
-  }
-
-  dot++;
-  while (*dot) {
-    *extension++ = toupper((unsigned char)*dot);
-    dot++;
-  }
-  *extension = '\0';
-}
-
 void execute_selection(void) {
   uint8_t i;
   uint8_t ret=0;
@@ -384,16 +295,12 @@ void execute_selection(void) {
     };
     border(0);
     clrscr();
-    put_str_xy(16, 9, "LOADING");
-#ifndef MZ800PICO_TEST
     if (path[strlen(path) - 1] != '/') {
       strcat(path, "/");
     }
     strncat(path, filename, sizeof(path) - strlen(path) - 1);
-    int ln = strlen(path);
-    put_str_xy(20 - ln / 2, 11, path);
+    loading_screen(path);
     ret = mount_entry(path);
-#endif
     if (ret) {
       put_str_xy(15, 23, error_description);
       return;
@@ -442,7 +349,6 @@ void search(char c) {
 }
 
 void refresh_device(void) {
-  //put_str_attr_xy(1, 1,  "Path:                                 ", 0x05);
   sprintf(path, "%s:/", devices[device_selected].name);
   display_path(path);
   read_dir(path);

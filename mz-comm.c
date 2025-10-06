@@ -134,7 +134,7 @@ uint8_t execute_command(uint8_t command, comm_params_t *in_params, comm_params_t
   return 0;
 }
 
-uint8_t list_dir(char *path, uint16_t *entries_cnt, DIR_ENTRY *entries) {
+uint8_t list_dir(const char *path, uint16_t *entries_cnt, DIR_ENTRY *entries) {
   uint8_t ret;
   comm_params_t input;
   comm_params_t output;
@@ -161,7 +161,22 @@ uint8_t list_dev(uint16_t *entries_cnt, DEV_ENTRY *entries) {
   return 0;
 }
 
-uint8_t mount_entry(char *path) {
+uint8_t get_config(const char *section, uint16_t *entries_cnt, ConfigEntry *entries) {
+  uint8_t ret;
+  comm_params_t input;
+  comm_params_t output;
+
+  input.data = section;
+  input.ln = strlen(section)+1;
+  output.data = entries;
+  ret = execute_command(REPO_CMD_GET_CONFIG, &input, &output);
+  if (ret)
+    return ret;
+  *entries_cnt = output.ln / sizeof(ConfigEntry);
+  return 0;
+}
+
+uint8_t mount_entry(const char *path) {
   uint8_t ret;
 
   comm_params_t input;

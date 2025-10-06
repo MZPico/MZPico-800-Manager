@@ -32,8 +32,9 @@
 #define ATT(front, back) ((front)*16+(back))
 #define ATT_ALT(front, back) (0x8000+(front)*16+(back))
 
-void put_str_xy(uint8_t x, uint8_t y, char *s);
-void put_str_attr_xy(uint8_t x, uint8_t y, char *s, uint8_t attr);
+void console_init(void);
+void put_str_xy(uint8_t x, uint8_t y, const char *s);
+void put_str_attr_xy(uint8_t x, uint8_t y, const char *s, uint8_t attr);
 void put_char_attr_xy(uint8_t x, uint8_t y, char c, uint8_t attr);
 void put_multi_char_xy(uint8_t x, uint8_t y, uint8_t c, uint8_t cnt);
 void put_multi_attr_xy(uint8_t x, uint8_t y, uint8_t attr, uint8_t cnt);
@@ -43,5 +44,7 @@ void scroll_down(uint8_t first, uint8_t number);
 void scroll_up(uint8_t first, uint8_t number);
 uint8_t inkey(void);
 void beep(void);
+void loading_screen(const char* name);
+void get_uppercase_extension(const char* filename, char* extension);
 
 #endif

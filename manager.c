@@ -42,11 +42,12 @@ void draw_main_frame(void) {
 }
 
 
-void manager_main(void) {
+void main(void) {
   uint16_t i;
   unsigned char val;
   uint8_t c;
 
+  console_init();
   init_screen();
   draw_main_frame();
   explorer_init();
@@ -56,7 +57,9 @@ void manager_main(void) {
       explorer_handle_key(c);
       switch (c) {
         case 5:
-          return;
+          mount_entry("@menu");
+          beep();
+          read_and_execute();
       }
     }
   }

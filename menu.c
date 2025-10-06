@@ -1,11 +1,17 @@
 #include <string.h>
 #include <stdio.h>
+#include <ctype.h>
+
 
 #include "mz-comm.h"
 #include "console.h"
+#include "explorer.h"
 
 #define MAX_MENU_ITEMS 18
 #define MAX_MENU_DESCRIPTION_LENGTH 25
+static const char *factory_entry_names[MAX_MENU_ITEMS];
+static uint8_t (*exec_wrappers[MAX_MENU_ITEMS])(void);
+static uint8_t factory_count;
 
 typedef struct {
   char key;
@@ -16,6 +22,10 @@ typedef struct {
 
 menu_entry_t menu[MAX_MENU_ITEMS];
 
+ConfigEntry config[MAX_MENU_ITEMS + 5];
+
+uint8_t execute_with_mount(const char *entry_name);
+void read_and_execute(void);
 
 uint8_t fdc_enabled(void) {
   __asm
@@ -65,17 +75,60 @@ uint8_t execute_monitor(void) __naked {
   __endasm;
 }
 
-uint8_t execute_basic(void) {
-  mount_entry("#basic");
-  read_and_execute(); 
+
+
+// Generic dispatcher: looks up entry name by index
+static uint8_t exec_func_dispatch(uint8_t index) {
+    if (index >= factory_count)
+        return 0;
+    return execute_with_mount(factory_entry_names[index]);
 }
 
-uint8_t execute_setup(void) {
-  setup_main();
+// Each wrapper simply calls the dispatcher with its own index
+static uint8_t exec_func_0(void) { return exec_func_dispatch(0); }
+static uint8_t exec_func_1(void) { return exec_func_dispatch(1); }
+static uint8_t exec_func_2(void) { return exec_func_dispatch(2); }
+static uint8_t exec_func_3(void) { return exec_func_dispatch(3); }
+static uint8_t exec_func_4(void) { return exec_func_dispatch(4); }
+static uint8_t exec_func_5(void) { return exec_func_dispatch(5); }
+static uint8_t exec_func_6(void) { return exec_func_dispatch(6); }
+static uint8_t exec_func_7(void) { return exec_func_dispatch(7); }
+static uint8_t exec_func_8(void) { return exec_func_dispatch(8); }
+static uint8_t exec_func_9(void) { return exec_func_dispatch(9); }
+static uint8_t exec_func_10(void) { return exec_func_dispatch(10); }
+static uint8_t exec_func_11(void) { return exec_func_dispatch(11); }
+static uint8_t exec_func_12(void) { return exec_func_dispatch(12); }
+static uint8_t exec_func_13(void) { return exec_func_dispatch(13); }
+static uint8_t exec_func_14(void) { return exec_func_dispatch(14); }
+static uint8_t exec_func_15(void) { return exec_func_dispatch(15); }
+static uint8_t exec_func_16(void) { return exec_func_dispatch(16); }
+static uint8_t exec_func_17(void) { return exec_func_dispatch(17); }
+
+
+uint8_t (* exec_with_mount_factory(const char *entry_name))(void) {
+    if (factory_count >= MAX_MENU_ITEMS)
+        return NULL;
+
+    factory_entry_names[factory_count] = entry_name;
+    return exec_wrappers[factory_count++];
 }
 
-uint8_t execute_explorer(void) {
-  manager_main();
+uint8_t execute_with_mount(const char *entry_name) {
+    char extension[5];
+    mount_entry(entry_name);
+    if (entry_name[0] != '@')
+    {
+        clrscr();
+        loading_screen(entry_name);
+    }
+    get_uppercase_extension(entry_name, extension);
+    if (!strcmp(extension, "DSK"))
+      execute_floppy();
+    else if (!strcmp(extension, "MZQ"))
+      execute_quickdisk();
+    else
+      read_and_execute();
+    return 0;
 }
 
 void init(void) {
@@ -117,19 +170,61 @@ int add_menu_entry(char key, const char *desc,
 }
 
 void init_menu(void) {
+  uint16_t menu_entries = 0;
+
+  factory_count = 0;
+  exec_wrappers[0] = exec_func_0;
+  exec_wrappers[1] = exec_func_1;
+  exec_wrappers[2] = exec_func_2;
+  exec_wrappers[3] = exec_func_3;
+  exec_wrappers[4] = exec_func_4;
+  exec_wrappers[5] = exec_func_5;
+  exec_wrappers[6] = exec_func_6;
+  exec_wrappers[7] = exec_func_7;
+  exec_wrappers[8] = exec_func_8;
+  exec_wrappers[9] = exec_func_9;
+  exec_wrappers[10] = exec_func_10;
+  exec_wrappers[11] = exec_func_11;
+  exec_wrappers[12] = exec_func_12;
+  exec_wrappers[13] = exec_func_13;
+  exec_wrappers[14] = exec_func_14;
+  exec_wrappers[15] = exec_func_15;
+  exec_wrappers[16] = exec_func_16;
+  exec_wrappers[17] = exec_func_17;
+
   reset_menu();
   add_menu_entry('F', "Floppy disk", fdc_enabled, execute_fdc);
   add_menu_entry('Q', "Quick disk", qd_enabled, execute_qd);
   add_menu_entry('C', "Cassette tape", NULL, execute_tape);
   add_menu_entry('M', "Monitor", NULL, execute_monitor);
-  add_menu_entry('B', "Basic", NULL, execute_basic);
-  add_menu_entry('E', "Explorer", NULL, execute_explorer);
+
+  get_config("menu", &menu_entries, config);
+
+  for (int i = 0; i < menu_entries; i++) {
+    if (strncmp(config[i].key, "key_", 4) != 0)
+      continue;
+
+    char menu_key = toupper(config[i].key[4]);
+
+    char *value = config[i].value;
+    char *sep = strchr(value, '|');
+    if (!sep)
+      continue;
+
+    size_t desc_len = sep - value;
+    char menu_desc[MAX_MENU_DESCRIPTION_LENGTH];
+    strncpy(menu_desc, value, desc_len);
+    menu_desc[desc_len] = '\0';
+
+    char *action = sep + 1;
+    add_menu_entry(menu_key, menu_desc, NULL, exec_with_mount_factory(action));
+  }
 }
 
 void display_menu(void) {
   uint8_t col = 12;
 
-  beep();
+  //beep();
   clrscr();
   border(0);
   init_menu();
@@ -168,8 +263,6 @@ void execute_action_loop(void) {
 }
 
 void main(void) {
-  if (inkey() == 5)
-    execute_setup();
   display_menu();
   execute_action_loop();
 }

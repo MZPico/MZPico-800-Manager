@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <input.h>
 #include <string.h>
+#include <ctype.h>
 
 #include "console.h"
 
@@ -25,6 +26,14 @@ uint8_t vram_codes[256] = {
   0xe0, 0xe1, 0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe7, 0xe8, 0xe9, 0xea, 0xeb, 0xec, 0xed, 0xee, 0xef,
   0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0x6a, 0xfb, 0x6c, 0x4d, 0x4e, 0xff,
 };
+
+uint8_t fk_latched;        // current debounced F-key (0 = none)
+uint8_t fk_release_count;  // consecutive zero samples seen
+uint8_t fk_press_lockout;  // ignore cross-talk for a few polls after press
+uint8_t fk_autorepeat_trigger;
+uint8_t fk_autorepeat_speed;
+uint8_t fk_curr_key;
+
 
 /* multiplication by 40
  * to be called from assembly code
@@ -61,7 +70,7 @@ void _multiply40(void) __naked {
   __endasm;
 }
 
-void put_str_xy(uint8_t x, uint8_t y, char *s) __naked {
+void put_str_xy(uint8_t x, uint8_t y, const char *s) __naked {
     __asm
         push iy
         ld iy, 4
@@ -97,7 +106,7 @@ done_psx:
     __endasm;
 }
 
-void put_str_attr_xy(uint8_t x, uint8_t y, char *s, uint8_t attr) __naked {
+void put_str_attr_xy(uint8_t x, uint8_t y, const char *s, uint8_t attr) __naked {
     __asm
         push iy
         ld iy, 4
@@ -421,14 +430,6 @@ uint8_t map_fmask(uint8_t m) {
 
 uint8_t inkey(void) {
   // --- F-key debouncer state (persists across calls) ---
-  static uint8_t fk_latched = 0;        // current debounced F-key (0 = none)
-  static uint8_t fk_release_count = 0;  // consecutive zero samples seen
-  static uint8_t fk_press_lockout = 0;  // ignore cross-talk for a few polls after press
-
-  // --- Autorepeat state (your original) ---
-  static uint8_t autorepeat_trigger;
-  static uint8_t autorepeat_speed;
-  static uint8_t curr_key;
 
   // --- read and debounce F-keys (eager press, delayed release) ---
   uint8_t fmask = scan_fkeys();
@@ -467,71 +468,54 @@ uint8_t inkey(void) {
     c = getk();  // MUST be non-blocking
 
   // --- your autorepeat logic unchanged ---
-  if (c != 0 && curr_key == c) {
-    if (autorepeat_trigger <= 50) {
-      autorepeat_trigger++;
-      autorepeat_speed = 0;
+  if (c != 0 && fk_curr_key == c) {
+    if (fk_autorepeat_trigger <= 50) {
+      fk_autorepeat_trigger++;
+      fk_autorepeat_speed = 0;
       return 0;
     } else {
-      autorepeat_speed++;
-      if (autorepeat_speed <= 5)
+      fk_autorepeat_speed++;
+      if (fk_autorepeat_speed <= 5)
         return 0;
       else
-        autorepeat_speed = 0;
+        fk_autorepeat_speed = 0;
       // fallthrough to return c
     }
   } else {
-    autorepeat_trigger = 0;
-    autorepeat_speed   = 0;
+    fk_autorepeat_trigger = 0;
+    fk_autorepeat_speed   = 0;
   }
 
-  curr_key = c;
+  fk_curr_key = c;
   return c;
 }
 
-/*
-uint8_t inkey(void) {
-  static uint8_t autorepeat_trigger;
-  static uint8_t autorepeat_speed;
-  static uint8_t curr_key;
-  static uint8_t fk_prev_mask, fk_stable_count;
-  uint8_t fmask = scan_fkeys();
-
-  if (fmask != fk_prev_mask) {
-    fk_prev_mask = fmask;
-    fk_stable_count = 0;            // reset stability counter on any change
-  }
-  if (fk_stable_count < 20)          // require 2 consecutive identical reads
-    fk_stable_count++;
-
-  uint8_t c = 0;
-  if (fk_stable_count >= 20) {
-    if      (fmask & 0x80) c = 1;
-    else if (fmask & 0x40) c = 2;
-    else if (fmask & 0x20) c = 3;
-    else if (fmask & 0x10) c = 4;
-    else if (fmask & 0x08) c = 5;
-  }
-
-  if (!c)
-    c = getk();
-  if (c != 0 && curr_key == c) {
-    if (autorepeat_trigger <= 50) {
-      autorepeat_trigger++;
-      autorepeat_speed = 0;
-      return 0;
-    } else {
-      autorepeat_speed++;
-      if (autorepeat_speed <= 5)
-        return 0;
-      else
-        autorepeat_speed = 0;
-    }
-  } else {
-    autorepeat_trigger = 0;
-    autorepeat_speed = 0;
-  }
-  curr_key = c;
-  return c;
+void loading_screen(const char* name) {
+  put_str_xy(16, 9, "LOADING");
+  int ln = strlen(name);
+  put_str_xy(20 - ln / 2, 11, name);
 }
-*/
+
+void get_uppercase_extension(const char* filename, char* extension) {
+  const char* dot = strrchr(filename, '.');
+  if (!dot || dot == filename) {
+    extension[0] = '\0';
+    return;
+  }
+
+  dot++;
+  while (*dot) {
+    *extension++ = toupper((unsigned char)*dot);
+    dot++;
+  }
+  *extension = '\0';
+}
+
+void console_init(void) {
+  fk_latched = 0;
+  fk_release_count = 0;
+  fk_press_lockout = 0;
+  fk_autorepeat_trigger = 0;
+  fk_autorepeat_speed = 0;
+  fk_curr_key = 0;
+}
