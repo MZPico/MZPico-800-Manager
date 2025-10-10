@@ -51,4 +51,5 @@ jobs:
           generate_release_notes: true
           draft: true
           files: |
-            build/mzpico800.mzf
+            build/menu.mzf
+            build/explorer.mzf
