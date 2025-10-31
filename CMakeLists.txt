@@ -26,40 +26,43 @@ set(COMMON_FLAGS
 
 # Explorer target
 set(EXPLORER_SOURCES
-    "${CMAKE_SOURCE_DIR}/mz-comm.c"
-    "${CMAKE_SOURCE_DIR}/console.c"
-    "${CMAKE_SOURCE_DIR}/manager.c"
-    "${CMAKE_SOURCE_DIR}/explorer.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/mz-comm.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/console.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/manager.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/explorer.c"
 )
 
 set(EXPLORER_OUTPUT explorer)
+set(EXPLORER_MZF "${CMAKE_CURRENT_BINARY_DIR}/${EXPLORER_OUTPUT}.mzf")
 
 add_custom_command(
-    OUTPUT ${EXPLORER_OUTPUT}
+    OUTPUT ${EXPLORER_MZF}
     COMMAND ${ZCC_EXECUTABLE} ${COMMON_FLAGS} -o ${EXPLORER_OUTPUT} ${EXPLORER_SOURCES}
     DEPENDS ${EXPLORER_SOURCES}
-    COMMAND ${CMAKE_COMMAND} -E rename ${EXPLORER_OUTPUT}.mzt ${CMAKE_BINARY_DIR}/${EXPLORER_OUTPUT}.mzf
-    COMMENT "Building explorer with z88dk..."
+    COMMAND ${CMAKE_COMMAND} -E rename ${EXPLORER_OUTPUT}.mzt ${EXPLORER_MZF}
+    WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
 )
 
-add_custom_target(build_${EXPLORER_OUTPUT} ALL DEPENDS ${EXPLORER_OUTPUT})
+add_custom_target(build_${EXPLORER_OUTPUT} ALL DEPENDS ${EXPLORER_MZF})
 
 # Menu target
 set(MENU_SOURCES
-    "${CMAKE_SOURCE_DIR}/mz-comm.c"
-    "${CMAKE_SOURCE_DIR}/console.c"
-    "${CMAKE_SOURCE_DIR}/menu.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/mz-comm.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/console.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/menu.c"
 )
 
 set(MENU_OUTPUT menu)
+set(MENU_MZF "${CMAKE_CURRENT_BINARY_DIR}/${MENU_OUTPUT}.mzf")
 
 add_custom_command(
-    OUTPUT ${MENU_OUTPUT}
+    OUTPUT ${MENU_MZF}
     COMMAND ${ZCC_EXECUTABLE} ${COMMON_FLAGS} -o ${MENU_OUTPUT} ${MENU_SOURCES}
     DEPENDS ${MENU_SOURCES}
-    COMMAND ${CMAKE_COMMAND} -E rename ${MENU_OUTPUT}.mzt ${CMAKE_BINARY_DIR}/${MENU_OUTPUT}.mzf
-    COMMENT "Building menu with z88dk..."
+    COMMAND ${CMAKE_COMMAND} -E rename ${MENU_OUTPUT}.mzt ${MENU_MZF}
+    WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
 )
 
-add_custom_target(build_${MENU_OUTPUT} ALL DEPENDS ${MENU_OUTPUT})
+add_custom_target(build_${MENU_OUTPUT} ALL DEPENDS ${MENU_MZF})
 
+set(MZF_FILES "${EXPLORER_MZF};${MENU_MZF}" PARENT_SCOPE)
