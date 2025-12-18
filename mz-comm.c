@@ -176,6 +176,18 @@ uint8_t get_config(const char *section, uint16_t *entries_cnt, ConfigEntry *entr
   return 0;
 }
 
+uint8_t get_wifi_status(void) {
+  uint8_t ret;
+  comm_params_t output;
+  uint8_t status;
+
+  output.data = &status;
+  ret = execute_command(REPO_CMD_GET_WIFI_STATUS, NULL, &output);
+  if (ret)
+    return 0xFF;
+  return status;
+}
+
 uint8_t mount_entry(const char *path) {
   uint8_t ret;
 

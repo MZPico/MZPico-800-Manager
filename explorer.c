@@ -18,6 +18,10 @@ uint16_t dev_items;
 uint16_t dir_items;
 uint16_t file_selected;
 uint16_t file_offset;
+uint16_t menu_poll;
+uint8_t wifi_status;
+uint8_t initial_key;
+uint16_t wifi_status_blink;
 char search_str[MAX_SEARCH];
 uint8_t search_ln;
 char path[255];
@@ -134,6 +138,11 @@ void select_file(uint8_t index) {
     // Clear old selection indicators
     put_char_attr_xy(0, old_line, ' ', 0x75);
     put_char_attr_xy(39, old_line, ' ', 0x75);
+    if (index == -1) {
+        put_multi_attr_xy(1, old_line, 0x71, 38);
+        put_multi_char_xy(1, 23, ' ', 9);
+        return;
+    }
 
     uint8_t needs_redraw = 0;
 
@@ -160,12 +169,9 @@ void select_file(uint8_t index) {
         display_item(file_offset, 2);
     }
 
-    if (needs_redraw) {
-        put_multi_attr_xy(1, old_line, 0x71, 38);
+    put_multi_attr_xy(1, old_line, 0x71, 38);
+    if (needs_redraw)
         display_items(file_offset);
-    } else {
-        put_multi_attr_xy(1, old_line, 0x71, 38);
-    }
 
     // Draw new selection indicators
     new_line = index - file_offset + 2;
@@ -349,14 +355,16 @@ void search(char c) {
 }
 
 void refresh_device(void) {
+  select_file(-1);
   sprintf(path, "%s:/", devices[device_selected].name);
   display_path(path);
   read_dir(path);
   display_items(0);
-  if (dir_items>0)
+  if (dir_items>0) {
     select_file(0);
-  else
+  } else {
     put_str_xy(5, 10, "No files found on this device");
+  }
 }
 
 void cycle_device(void) {
@@ -367,6 +375,7 @@ void cycle_device(void) {
     device_selected = 0;
   search_ln = 0;
   refresh_device();
+  for (uint32_t i=0; i<5000; i++);
 }
 
 void explorer_init(void) {
@@ -374,10 +383,20 @@ void explorer_init(void) {
   file_selected = 0;
   file_offset = 0;
   search_ln = 0;
+  menu_poll = 0;
+  wifi_status = 0;
+  wifi_status_blink = 0;
+  initial_key = 0;
 
   uint8_t ret = list_dev(&dev_items, devices);
   if (ret) {
     put_str_xy(15, 23, error_description);
+  }
+  for (uint8_t i=0; i<dev_items; i++) {
+    if (strcmp(devices[i].name, "sd") == 0) {
+      put_char_attr_xy(37, 0, 0xbf, 0xc1);
+      break;
+    }
   }
 
   device_selected = 0;
@@ -385,6 +404,7 @@ void explorer_init(void) {
 }
 
 void explorer_handle_key(char c) {
+  if (c) initial_key = c;
   switch (c) {
     case 0x02:
       cycle_device();
@@ -407,4 +427,60 @@ void explorer_handle_key(char c) {
   }
   if ((c>='A') && (c<='Z') || (c>='0') && (c<='9'))
     search(c);
+}
+
+void explorer_poll(void) {
+  uint8_t prev_wifi_status = wifi_status;
+  menu_poll++;
+  char c;
+  char attr;
+  if (menu_poll == 30) {
+    menu_poll = 0;
+    wifi_status = get_wifi_status();
+    c = 0xb5;
+    attr = 0xe1;
+    switch(wifi_status) {
+      case WIFI_STATUS_INIT:
+      case WIFI_STATUS_STARTING:
+        attr = 0xa1;
+      case WIFI_STATUS_CONNECTING:
+        if (wifi_status == prev_wifi_status) {
+          wifi_status_blink++;
+        } else {
+          wifi_status_blink = 0;
+        }
+        if ((wifi_status_blink & 0x02) == 0) {
+          c = 0xb5;
+        } else {
+          c = ' ';
+        }
+        break;
+      case WIFI_STATUS_CONNECTED:
+        c = 0xb5;
+        attr = 0xc1;
+        if (prev_wifi_status != WIFI_STATUS_CONNECTED) {
+          list_dev(&dev_items, devices);
+          if (!initial_key || (dir_items == 0)) {
+            device_selected = dev_items - 1;
+            refresh_device();
+          }
+        }
+        break;
+      case WIFI_STATUS_DISCONNECTED:
+        c = 0xb5;
+        attr = 0xe1;
+        break;
+      case WIFI_STATUS_ERROR:
+        c = 0xb5;
+        attr = 0xa1;
+        break;
+      case WIFI_STATUS_NOT_SUPPORTED:
+        c = ' ';
+        break;
+      default:
+        c = ' ';
+        break;
+    }
+    put_char_attr_xy(38, 0, c, attr);
+  }
 }

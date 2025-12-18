@@ -7,5 +7,6 @@
 
 void explorer_init(void);
 void explorer_handle_key(char c);
+void explorer_poll(void);
 
 #endif
