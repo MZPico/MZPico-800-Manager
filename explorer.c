@@ -422,6 +422,7 @@ void explorer_handle_key(char c) {
       select_prev(20);
       break;
     case 0x0a:
+    case 0x0d:  // CR mapping differs between z88dk versions (\n vs \r)
       execute_selection();
       break;
   }
