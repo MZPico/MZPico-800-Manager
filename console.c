@@ -27,11 +27,15 @@ uint8_t vram_codes[256] = {
   0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0x6a, 0xfb, 0x6c, 0x4d, 0x4e, 0xff,
 };
 
-// Keyboard state (see inkey)
-static uint8_t key_cur;       // debounced key currently held (0 = none)
-static uint8_t key_cand;      // last raw sample
-static uint8_t key_cand_n;    // consecutive polls the raw sample was stable
-static uint16_t key_held;     // ms key_cur has been held (autorepeat clock)
+// Keyboard state (see inkey): 10 strobe columns, index = strobe - 0xF0
+// (8 = SHIFT/CTRL/BREAK column, 9 = function keys), bits active low
+static uint8_t scan_cur[10];     // this scan
+static uint8_t scan_prev[10];    // previous scan (stability window)
+static uint8_t scan_last[10];    // state at the last evaluation (new-key detection)
+static uint8_t scan_stable;      // identical scans in a row
+static uint8_t rep_counter;      // windows until the next (auto)repeat
+static uint8_t held_key;         // key reported at the last new press (0 = none / F-key)
+static uint8_t key_any;          // last evaluation saw a key down
 
 /* multiplication by 40
  * to be called from assembly code
@@ -395,37 +399,77 @@ void beep(void) __naked {
   __endasm;
 }
 
-uint8_t scan_fkeys(void) {
+// Scan the whole keyboard matrix (8255 memory-mapped in MZ-700 mode: strobe
+// to 0xE000, rows from 0xE001; ~5 us settle, two reads ORed so a bit counts
+// as pressed only when both agree) into scan_cur, and while at it compute
+// the flags inkey() needs - in assembler, because the same loop in C cost
+// ~4 ms per scan on sccz80 and made BASIC's 16/64/6 windows 5 s long.
+// Column 8 (SHIFT/CTRL/BREAK) is masked to BREAK. Returns:
+//   bit0 any key down, bit1 changed vs previous scan, bit2 a key newly
+//   pressed vs scan_last, bit3 that new key is in the F-key column.
+static uint8_t scan_matrix(void) __naked {
   __asm
-    ld   a,0xf9
-    ld  (0xe000),a
-    nop
-    nop
-    ld   a,(0xe001)
-    ld   b,a
-    nop
-    ld   a,(0xe001)
-    and  b
+    push ix
+    ld hl, _scan_cur
+    ld de, _scan_prev
+    ld ix, _scan_last
+    ld c, 0
+    ld a, 0xf0
+    ld b, 10
+_sm_loop:
+    ld (0xe000), a
+    push af
+    push bc
+    ld b, 4
+_sm_settle:
+    djnz _sm_settle
+    ld a, (0xe001)
+    ld b, a
+    ld a, (0xe001)
+    or b
+    pop bc
+    ld (hl), a
+    ld a, b
+    cp 2                 ; column 8 (strobe 0xf8): keep BREAK only
+    jr nz, _sm_nomask
+    ld a, (hl)
+    or 0x7f
+    ld (hl), a
+_sm_nomask:
+    ld a, (de)
+    cp (hl)
+    jr z, _sm_same
+    set 1, c             ; changed
+_sm_same:
+    ld a, (hl)
+    ld (de), a
+    cp 0xff
+    jr z, _sm_none
+    set 0, c             ; any key down
+_sm_none:
     cpl
-    ld l, a
+    and (ix+0)           ; pressed now and not at the last evaluation
+    jr z, _sm_nonew
+    set 2, c             ; new key
+    ld a, b
+    cp 1
+    jr nz, _sm_nonew
+    set 3, c             ; in the F-key column
+_sm_nonew:
+    inc hl
+    inc de
+    inc ix
+    pop af
+    inc a
+    djnz _sm_loop
+    ld l, c
     ld h, 0
-  __endasm;
-}
-
-// ~1 ms at the MZ-800's 3.55 MHz: makes one inkey() poll one millisecond,
-// so the debounce and autorepeat constants below are in ms regardless of
-// what the caller does between polls (the ROM key scan itself is ~0.3 ms).
-static void delay_1ms(void) __naked {
-  __asm
-    ld b, 200
-_d1ms_loop:
-    nop
-    djnz _d1ms_loop      ; 17 T x 200 = 3400 T
+    pop ix
     ret
   __endasm;
 }
 
-// Map the F-key bitfield to 1..5 (highest bit wins)
+// Map the F-key row (strobe 9, active low) to 1..5 (highest bit wins)
 static uint8_t map_fmask(uint8_t m) {
   if      (m & 0x80) return 1;
   else if (m & 0x40) return 2;
@@ -435,53 +479,56 @@ static uint8_t map_fmask(uint8_t m) {
   else               return 0;
 }
 
-#define KEY_DEBOUNCE_MS   15   // a raw state must hold this long to count
-#define KEY_REPEAT_DELAY 400   // ms before the first autorepeat
-#define KEY_REPEAT_RATE   70   // ms between repeats
+#define KEY_WINDOW       8   // identical scans before a state is evaluated (~8 ms)
+#define KEY_REPEAT_DELAY 64  // windows before the first repeat (~0.55 s)
+#define KEY_REPEAT_RATE   6  // windows between repeats (~50 ms)
 
-// Non-blocking, one call per ~1 ms. Both the ROM key scan (level-based:
-// the key is reported for as long as it is held) and the direct F-key scan
-// go through one debouncer: a change of the raw key is accepted only after
-// KEY_DEBOUNCE_MS identical samples, so contact bounce on release can no
-// longer look like a second press, and a flap between neighbouring F-keys
-// is ignored. Returns the key once on press, then again every
-// KEY_REPEAT_RATE ms after KEY_REPEAT_DELAY ms, 0 otherwise.
+// Timing: one scan_matrix() is ~330 T per column = ~0.95 ms at 3.55 MHz
+// (settle, double read, compare), heavier than BASIC's ~0.4 ms scan, so the
+// window is 8 scans instead of BASIC's 16 to land on BASIC's feel: ~8 ms
+// debounce, first repeat after ~0.55 s, then ~20 per second.
+// Non-blocking, one scan per call. Replicates Sharp BASIC's GETL key
+// handling (MZ-2Z046 A0B21..A0C68): the matrix is scanned every pass and
+// any change restarts a window of KEY_WINDOW identical scans (debounce);
+// once stable, a bit pressed now that was not pressed at the last
+// evaluation is a new key and is reported at once (the ROM decodes it to
+// ASCII, called once); a key still held is reported again after
+// KEY_REPEAT_DELAY windows and then every KEY_REPEAT_RATE windows; no key
+// resets everything. SHIFT and CTRL alone are not keys (their column is
+// masked except BREAK), and function keys never repeat - as in BASIC.
 uint8_t inkey(void) {
-  uint8_t raw;
+  uint8_t f = scan_matrix();
 
-  delay_1ms();
-  raw = map_fmask(scan_fkeys());
-  if (!raw)
-    raw = getk();                       // MUST be non-blocking
+  if (f & 2) { scan_stable = 0; return 0; }
+  if (scan_stable < KEY_WINDOW) { scan_stable++; return 0; }
+  scan_stable = 0;                       // one evaluation per window
+  key_any = f & 1;
 
-  if (raw != key_cand) {
-    key_cand = raw;
-    key_cand_n = 0;
-  } else if (key_cand_n < 255) {
-    key_cand_n++;
+  if (!(f & 1)) {
+    memcpy(scan_last, scan_cur, 10);
+    held_key = 0;
+    rep_counter = KEY_REPEAT_DELAY;
+    return 0;
   }
-
-  if (key_cand != key_cur && key_cand_n >= KEY_DEBOUNCE_MS) {
-    key_cur = key_cand;                 // debounced press or release
-    key_held = 0;
-    return key_cur;                     // 0 on release: nothing to report
+  if (f & 4) {
+    memcpy(scan_last, scan_cur, 10);
+    rep_counter = KEY_REPEAT_DELAY;
+    if (f & 8) { held_key = 0; return map_fmask((uint8_t)~scan_cur[9]); }
+    held_key = getk();                   // ROM decode of the key just pressed
+    return held_key;
   }
-
-  if (key_cur) {
-    key_held++;
-    if (key_held >= KEY_REPEAT_DELAY) {
-      key_held = KEY_REPEAT_DELAY - KEY_REPEAT_RATE;
-      return key_cur;
-    }
+  if (held_key && --rep_counter == 0) {
+    rep_counter = KEY_REPEAT_RATE;
+    return held_key;
   }
   return 0;
 }
 
-// Wait until every key (F-keys included) is released, then for a new press.
-// Resets the debouncer so a held F-key cannot dismiss a screen it opened.
+// Wait until every key is released, then for a new press. Resets the
+// scanner so a held F-key cannot dismiss a screen it opened.
 void wait_key(void) {
-  while (scan_fkeys() || getk());
   console_init();
+  do { inkey(); } while (key_any || scan_stable);
   while (!inkey());
 }
 
@@ -507,8 +554,10 @@ void get_uppercase_extension(const char* filename, char* extension) {
 }
 
 void console_init(void) {
-  key_cur = 0;
-  key_cand = 0;
-  key_cand_n = 0;
-  key_held = 0;
+  memset(scan_prev, 0xff, 10);
+  memset(scan_last, 0xff, 10);
+  scan_stable = 0;
+  rep_counter = KEY_REPEAT_DELAY;
+  held_key = 0;
+  key_any = 1;
 }
