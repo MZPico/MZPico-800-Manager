@@ -572,7 +572,7 @@ void explorer_poll(void) {
   menu_poll++;
   char c;
   char attr;
-  if (menu_poll == 30) {
+  if (menu_poll == 125) {              // inkey() polls are ~1 ms: 8 Hz status, 4 Hz blink
     menu_poll = 0;
     wifi_status = get_wifi_status();
     c = 0xb5;

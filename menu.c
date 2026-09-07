@@ -119,8 +119,7 @@ uint8_t execute_with_mount(const char *entry_name) {
         // Nothing is open: launching now would stream zeros into the loader
         // and jump into garbage. Show why, wait for a key, back to the menu.
         put_str_xy(2, 22, error_description);
-        while (inkey());
-        while (!inkey());
+        wait_key();
         return 0;
     }
     if (entry_name[0] != '@')

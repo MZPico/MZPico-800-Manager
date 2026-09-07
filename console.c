@@ -27,13 +27,11 @@ uint8_t vram_codes[256] = {
   0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0x6a, 0xfb, 0x6c, 0x4d, 0x4e, 0xff,
 };
 
-uint8_t fk_latched;        // current debounced F-key (0 = none)
-uint8_t fk_release_count;  // consecutive zero samples seen
-uint8_t fk_press_lockout;  // ignore cross-talk for a few polls after press
-uint8_t fk_autorepeat_trigger;
-uint8_t fk_autorepeat_speed;
-uint8_t fk_curr_key;
-
+// Keyboard state (see inkey)
+static uint8_t key_cur;       // debounced key currently held (0 = none)
+static uint8_t key_cand;      // last raw sample
+static uint8_t key_cand_n;    // consecutive polls the raw sample was stable
+static uint16_t key_held;     // ms key_cur has been held (autorepeat clock)
 
 /* multiplication by 40
  * to be called from assembly code
@@ -414,12 +412,21 @@ uint8_t scan_fkeys(void) {
   __endasm;
 }
 
-// Tunables (in "polls")
-#define FK_RELEASE_STABLE  10   // require this many consecutive zero reads to confirm release
-#define FK_PRESS_LOCKOUT   10   // after first press, ignore cross-talk for this many polls
+// ~1 ms at the MZ-800's 3.55 MHz: makes one inkey() poll one millisecond,
+// so the debounce and autorepeat constants below are in ms regardless of
+// what the caller does between polls (the ROM key scan itself is ~0.3 ms).
+static void delay_1ms(void) __naked {
+  __asm
+    ld b, 200
+_d1ms_loop:
+    nop
+    djnz _d1ms_loop      ; 17 T x 200 = 3400 T
+    ret
+  __endasm;
+}
 
-// Map F-key bitfield to 1..5 (highest bit wins)
-uint8_t map_fmask(uint8_t m) {
+// Map the F-key bitfield to 1..5 (highest bit wins)
+static uint8_t map_fmask(uint8_t m) {
   if      (m & 0x80) return 1;
   else if (m & 0x40) return 2;
   else if (m & 0x20) return 3;
@@ -428,66 +435,46 @@ uint8_t map_fmask(uint8_t m) {
   else               return 0;
 }
 
+#define KEY_DEBOUNCE_MS   15   // a raw state must hold this long to count
+#define KEY_REPEAT_DELAY 400   // ms before the first autorepeat
+#define KEY_REPEAT_RATE   70   // ms between repeats
+
+// Non-blocking, one call per ~1 ms. Both the ROM key scan (level-based:
+// the key is reported for as long as it is held) and the direct F-key scan
+// go through one debouncer: a change of the raw key is accepted only after
+// KEY_DEBOUNCE_MS identical samples, so contact bounce on release can no
+// longer look like a second press, and a flap between neighbouring F-keys
+// is ignored. Returns the key once on press, then again every
+// KEY_REPEAT_RATE ms after KEY_REPEAT_DELAY ms, 0 otherwise.
 uint8_t inkey(void) {
-  // --- F-key debouncer state (persists across calls) ---
+  uint8_t raw;
 
-  // --- read and debounce F-keys (eager press, delayed release) ---
-  uint8_t fmask = scan_fkeys();
-  uint8_t raw_fk = map_fmask(fmask);
+  delay_1ms();
+  raw = map_fmask(scan_fkeys());
+  if (!raw)
+    raw = getk();                       // MUST be non-blocking
 
-  if (raw_fk) {
-    if (fk_latched == 0) {
-      // First detection: accept immediately
-      fk_latched       = raw_fk;
-      fk_release_count = 0;
-      fk_press_lockout = FK_PRESS_LOCKOUT;
-    } else {
-      // Already holding a key: keep it (ignore flaps to other F-keys)
-      fk_release_count = 0;
-      if (fk_press_lockout) fk_press_lockout--;  // run down lockout
-    }
-  } else {
-    // No F-key bits set: only release after consecutive zeros and after lockout
-    if (fk_latched) {
-      if (fk_release_count < FK_RELEASE_STABLE) fk_release_count++;
-      if (fk_release_count >= FK_RELEASE_STABLE && fk_press_lockout == 0) {
-        fk_latched       = 0;    // confirmed release
-        fk_release_count = 0;
-      }
-    } else {
-      fk_release_count = 0;
-    }
-    if (fk_press_lockout) fk_press_lockout--;    // run down lockout
+  if (raw != key_cand) {
+    key_cand = raw;
+    key_cand_n = 0;
+  } else if (key_cand_n < 255) {
+    key_cand_n++;
   }
 
-  // Debounced F-key result
-  uint8_t c = fk_latched;
-
-  // If no debounced F-key is held, fall back to normal keys
-  if (!c)
-    c = getk();  // MUST be non-blocking
-
-  // --- your autorepeat logic unchanged ---
-  if (c != 0 && fk_curr_key == c) {
-    if (fk_autorepeat_trigger <= 50) {
-      fk_autorepeat_trigger++;
-      fk_autorepeat_speed = 0;
-      return 0;
-    } else {
-      fk_autorepeat_speed++;
-      if (fk_autorepeat_speed <= 5)
-        return 0;
-      else
-        fk_autorepeat_speed = 0;
-      // fallthrough to return c
-    }
-  } else {
-    fk_autorepeat_trigger = 0;
-    fk_autorepeat_speed   = 0;
+  if (key_cand != key_cur && key_cand_n >= KEY_DEBOUNCE_MS) {
+    key_cur = key_cand;                 // debounced press or release
+    key_held = 0;
+    return key_cur;                     // 0 on release: nothing to report
   }
 
-  fk_curr_key = c;
-  return c;
+  if (key_cur) {
+    key_held++;
+    if (key_held >= KEY_REPEAT_DELAY) {
+      key_held = KEY_REPEAT_DELAY - KEY_REPEAT_RATE;
+      return key_cur;
+    }
+  }
+  return 0;
 }
 
 // Wait until every key (F-keys included) is released, then for a new press.
@@ -520,10 +507,8 @@ void get_uppercase_extension(const char* filename, char* extension) {
 }
 
 void console_init(void) {
-  fk_latched = 0;
-  fk_release_count = 0;
-  fk_press_lockout = 0;
-  fk_autorepeat_trigger = 0;
-  fk_autorepeat_speed = 0;
-  fk_curr_key = 0;
+  key_cur = 0;
+  key_cand = 0;
+  key_cand_n = 0;
+  key_held = 0;
 }
