@@ -376,15 +376,36 @@ void search(char c) {
   }
 }
 
-// F1: info about the selected entry, as an overlay (rows 8-15, x 3-36).
+// F1: info about the selected entry, as a framed overlay (rows 8-15,
+// x 3-36) in the manager's look: cyan frame with the chamfered corner
+// glyphs of the list box, black interior, yellow labels, white values.
 // For MZF/M12 the 128-byte header is read from the file (Sharp name,
 // attribute, load/exec, body size); for DSK the extended-DSK geometry.
 #define INFO_X 3
 #define INFO_W 34
-static void info_line(uint8_t row, const char *text) {
+#define INFO_TOP 8
+#define INFO_BOTTOM 15
+#define ATTR_FRAME 0x05
+#define ATTR_BAR_TEXT 0x75
+#define ATTR_BODY 0x70
+#define ATTR_LABEL 0x60
+
+static void info_line(uint8_t row, const char *label, const char *value) {
+  uint8_t ln = strlen(label);
+  put_char_attr_xy(INFO_X, row, ' ', ATTR_FRAME);
+  put_multi_char_xy(INFO_X + 1, row, ' ', INFO_W - 2);
+  put_multi_attr_xy(INFO_X + 1, row, ATTR_BODY, INFO_W - 2);
+  put_char_attr_xy(INFO_X + INFO_W - 1, row, ' ', ATTR_FRAME);
+  put_str_attr_xy(INFO_X + 2, row, label, ATTR_LABEL);
+  put_str_xy(INFO_X + 2 + ln, row, value);
+}
+
+static void info_bar(uint8_t row, const char *text, uint8_t tl, uint8_t tr, uint8_t attr_l, uint8_t attr_r) {
   put_multi_char_xy(INFO_X, row, ' ', INFO_W);
-  put_multi_attr_xy(INFO_X, row, 0x70, INFO_W);
-  put_str_xy(INFO_X + 1, row, text);
+  put_multi_attr_xy(INFO_X, row, ATTR_FRAME, INFO_W);
+  put_char_attr_xy(INFO_X, row, tl, attr_l);
+  put_char_attr_xy(INFO_X + INFO_W - 1, row, tr, attr_r);
+  put_str_attr_xy(INFO_X + (INFO_W - strlen(text)) / 2, row, text, ATTR_BAR_TEXT);
 }
 
 static void hex4(uint16_t v, char *out) {
@@ -402,68 +423,65 @@ void show_info(void) {
   size_t dir_len;
   DIR_ENTRY *e = dir_items ? &entries[file_selected] : 0;
 
-  put_multi_char_xy(INFO_X, 8, ' ', INFO_W);
-  put_multi_attr_xy(INFO_X, 8, 0x60, INFO_W);
-  put_str_xy(INFO_X + 1, 8, "File info");
-  for (i = 12; i <= 14; i++) info_line(i, "");
+  // frame: top/bottom bars with the list box's chamfered corners
+  info_bar(INFO_TOP, " File info ", 0xfe, 0xfd, 0x51, 0x51);
+  info_bar(INFO_BOTTOM, " any key ", 0xfd, 0xfe, 0x15, 0x15);
+  for (i = 12; i <= 14; i++) info_line(i, "", "");
 
-  info_line(9, e ? e->filename : "-");
+  info_line(9, "Name: ", e ? e->filename : "-");
 
-  strcpy(line, "Type: ");
   ext[0] = 0;
-  if (!e) strcat(line, "-");
-  else if (e->isDir) strcat(line, "directory");
+  if (!e) strcpy(line, "-");
+  else if (e->isDir) strcpy(line, "directory");
   else {
     get_uppercase_extension(e->filename, ext);
-    if (!strcmp(ext, "MZF") || !strcmp(ext, "M12")) strcat(line, "program (MZF)");
-    else if (!strcmp(ext, "DSK")) strcat(line, "floppy image (DSK)");
-    else if (!strcmp(ext, "MZQ")) strcat(line, "quick disk image (MZQ)");
-    else strcat(line, "file");
+    if (!strcmp(ext, "MZF") || !strcmp(ext, "M12")) strcpy(line, "program (MZF)");
+    else if (!strcmp(ext, "DSK")) strcpy(line, "floppy image (DSK)");
+    else if (!strcmp(ext, "MZQ")) strcpy(line, "quick disk image (MZQ)");
+    else strcpy(line, "file");
   }
-  info_line(10, line);
+  info_line(10, "Type: ", line);
 
-  strcpy(line, "Size: ");
   if (e && !e->isDir) {
-    u32toa(e->size, num); strcat(line, num); strcat(line, " bytes");
+    u32toa(e->size, line); strcat(line, " bytes");
     if (e->size >= 1024) { strcat(line, " ("); u32toa((e->size + 512) / 1024, num); strcat(line, num); strcat(line, "k)"); }
-  } else strcat(line, "-");
-  info_line(11, line);
+  } else strcpy(line, "-");
+  info_line(11, "Size: ", line);
 
   if (e && !e->isDir && ext[0]) {
     dir_len = strlen(path);
     if (path[dir_len - 1] != '/') strcat(path, "/");
     strncat(path, e->filename, sizeof(path) - strlen(path) - 1);
     if (read_file_head(path, head, sizeof(head))) {
-      info_line(12, error_description);
+      info_line(12, "", error_description);
     } else if (!strcmp(ext, "MZF") || !strcmp(ext, "M12")) {
-      strcpy(line, "MZF name: ");
+      line[0] = 0;
       for (i = 1; i < 18 && head[i] != 0x0d; i++) {
         char c = (char)head[i];
         strncat(line, (c >= 0x20 && c < 0x60) ? &c : "?", 1);
       }
-      info_line(12, line);
-      strcpy(line, "Attr "); hex4(head[0], num); strcat(line, num + 2);
+      info_line(12, "MZF name: ", line);
+      hex4(head[0], num); strcpy(line, num + 2);
       strcat(line, "  Load "); hex4(head[20] | (head[21] << 8), num); strcat(line, num);
       strcat(line, "  Exec "); hex4(head[22] | (head[23] << 8), num); strcat(line, num);
-      info_line(13, line);
-      strcpy(line, "Body: "); u32toa(head[18] | (head[19] << 8), num); strcat(line, num); strcat(line, " bytes");
-      info_line(14, line);
+      info_line(13, "Attr ", line);
+      hex4(head[18] | (head[19] << 8), num);
+      info_line(14, "Body: ", num);
     } else if (!strcmp(ext, "DSK")) {
-      strcpy(line, "Tracks: "); u32toa(head[0x30], num); strcat(line, num);
+      u32toa(head[0x30], line);
       strcat(line, "  Sides: "); u32toa(head[0x31], num); strcat(line, num);
-      info_line(12, line);
-      strcpy(line, "Creator: ");
+      info_line(12, "Tracks: ", line);
+      line[0] = 0;
       for (i = 0; i < 14 && head[0x22 + i] >= 0x20 && head[0x22 + i] < 0x7f; i++)
         strncat(line, (char *)&head[0x22 + i], 1);
-      info_line(13, line);
+      info_line(13, "Creator: ", line);
     }
     path[dir_len] = 0;
   }
-  info_line(15, "Press any key");
 
   wait_key();
 
-  for (i = 8; i <= 15; i++)
+  for (i = INFO_TOP; i <= INFO_BOTTOM; i++)
     put_multi_attr_xy(1, i, 0x71, 38);
   display_items(file_offset);
   if (dir_items)
