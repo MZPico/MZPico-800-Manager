@@ -490,6 +490,14 @@ uint8_t inkey(void) {
   return c;
 }
 
+// Wait until every key (F-keys included) is released, then for a new press.
+// Resets the debouncer so a held F-key cannot dismiss a screen it opened.
+void wait_key(void) {
+  while (scan_fkeys() || getk());
+  console_init();
+  while (!inkey());
+}
+
 void loading_screen(const char* name) {
   put_str_xy(16, 9, "LOADING");
   int ln = strlen(name);

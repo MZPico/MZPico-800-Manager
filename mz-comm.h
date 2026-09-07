@@ -17,6 +17,7 @@
 #define cmdREV       0x05
 #define cmdREVD      0x06
 #define cmdFDDMOUNT  0x10
+#define cmdGETFREE   0x20
 #define cmdCHDIR     0x21
 #define cmdGETCWD    0x22
 #define cmdSTAT      0x30
@@ -51,6 +52,9 @@
 #define ERROR_DESCRIPTION_LN 32
 #define FILENAME_LN 32
 #define DEVICE_LN 8
+// Listing cap shared by list_dir() and the explorer's entries[]: 37 bytes each,
+// and the explorer must keep a few KB between its BSS and the stack at 0xD000
+#define MAX_DIR_ENTRIES 800
 
 #define MAX_CONFIG_KEY_LENGTH 16
 #define MAX_CONFIG_VALUE_LENGTH 64
@@ -93,6 +97,7 @@ uint8_t list_dir(const char *path, uint16_t *entries_cnt, DIR_ENTRY *entries);
 uint8_t list_dev(uint16_t *entries_cnt, DEV_ENTRY *entries);
 uint8_t get_config(const char *section, uint16_t *entries_cnt, ConfigEntry *entries);
 uint8_t get_wifi_status(void);
+uint8_t read_file_head(const char *path, uint8_t *buf, uint8_t n); // first n bytes of a file
 uint8_t mount_entry(const char *path);
 void read_and_execute(void);
 void execute_floppy(void);

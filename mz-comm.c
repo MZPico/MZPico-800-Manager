@@ -208,7 +208,7 @@ uint8_t list_dir(const char *path, uint16_t *entries_cnt, DIR_ENTRY *entries) {
   uc_wstr(path);
   uc_status4(st);
   if (check_error(st)) return 1;
-  while ((st[0] & UC_ST_STREAM) && n < 930) {
+  while ((st[0] & UC_ST_STREAM) && n < MAX_DIR_ENTRIES) {
     DIR_ENTRY *e = &entries[n];
     uc_read(rec, 55);
     e->isDir = (rec[8] & 0x10) ? 1 : 0;
@@ -283,6 +283,19 @@ uint8_t get_wifi_status(void) {
   if (check_error(st) || !(st[0] & UC_ST_OUTPUT)) return 0xFF;
   status = uc_rd();
   return status;
+}
+
+// First n bytes of a file (MZF/DSK headers for the info panel)
+uint8_t read_file_head(const char *path, uint8_t *buf, uint8_t n) {
+  uint8_t st[4];
+  uc_cmd(cmdOPEN);
+  uc_wr(UC_FA_READ);
+  uc_wstr(path);
+  uc_status4(st);
+  if (check_error(st)) return 1;
+  uc_read(buf, n);
+  uc_cmd(cmdCLOSE);
+  return 0;
 }
 
 static void get_uppercase_ext(const char *path, char *ext) {

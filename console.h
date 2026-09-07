@@ -43,6 +43,7 @@ void clrscr(void);
 void scroll_down(uint8_t first, uint8_t number);
 void scroll_up(uint8_t first, uint8_t number);
 uint8_t inkey(void);
+void wait_key(void);
 void beep(void);
 void loading_screen(const char* name);
 void get_uppercase_extension(const char* filename, char* extension);

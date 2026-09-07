@@ -150,6 +150,19 @@ void deselect_file(void) {
     put_multi_char_xy(1, 23, ' ', 9);
 }
 
+// Selection bar and [n/m] counter for file_selected (also used to restore
+// the listing after an overlay)
+void draw_selection(void) {
+    uint16_t new_line = file_selected - file_offset + 2;
+    char buff[10];
+    put_multi_attr_xy(1, new_line, 0x16, 38);
+    put_multi_attr_xy(entries[file_selected].isDir ? 2 : 1, new_line, 0x02, search_ln);
+    put_char_attr_xy(0, new_line, 0xFC, 0xa5);
+    put_char_attr_xy(39, new_line, 0xFA, 0xa5);
+    sprintf(buff, "[%3d/%3d]", file_selected + 1, dir_items);
+    put_str_xy(1, 23, buff);
+}
+
 // Entry indices are 16-bit everywhere: dir_items can exceed 255
 void select_file(uint16_t index) {
     uint16_t old_line = file_selected - file_offset + 2;
@@ -188,19 +201,8 @@ void select_file(uint16_t index) {
     if (needs_redraw)
         display_items(file_offset);
 
-    // Draw new selection indicators
-    new_line = index - file_offset + 2;
-    put_multi_attr_xy(1, new_line, 0x16, 38);
-    put_multi_attr_xy(entries[index].isDir ? 2 : 1, new_line, 0x02, search_ln);
-    put_char_attr_xy(0, new_line, 0xFC, 0xa5);
-    put_char_attr_xy(39, new_line, 0xFA, 0xa5);
-
     file_selected = index;
-
-    // Display file selection status
-    char buff[10];
-    sprintf(buff, "[%3d/%3d]", file_selected + 1, dir_items);
-    put_str_xy(1, 23, buff);
+    draw_selection();
 }
 
 void select_filename(char *file) {
@@ -374,6 +376,100 @@ void search(char c) {
   }
 }
 
+// F1: info about the selected entry, as an overlay (rows 8-15, x 3-36).
+// For MZF/M12 the 128-byte header is read from the file (Sharp name,
+// attribute, load/exec, body size); for DSK the extended-DSK geometry.
+#define INFO_X 3
+#define INFO_W 34
+static void info_line(uint8_t row, const char *text) {
+  put_multi_char_xy(INFO_X, row, ' ', INFO_W);
+  put_multi_attr_xy(INFO_X, row, 0x70, INFO_W);
+  put_str_xy(INFO_X + 1, row, text);
+}
+
+static void hex4(uint16_t v, char *out) {
+  static const char h[] = "0123456789ABCDEF";
+  out[0] = h[(v >> 12) & 15]; out[1] = h[(v >> 8) & 15];
+  out[2] = h[(v >> 4) & 15]; out[3] = h[v & 15]; out[4] = 0;
+}
+
+void show_info(void) {
+  char line[40];
+  char num[12];
+  char ext[16];
+  uint8_t head[52];
+  uint8_t i;
+  size_t dir_len;
+  DIR_ENTRY *e = dir_items ? &entries[file_selected] : 0;
+
+  put_multi_char_xy(INFO_X, 8, ' ', INFO_W);
+  put_multi_attr_xy(INFO_X, 8, 0x60, INFO_W);
+  put_str_xy(INFO_X + 1, 8, "File info");
+  for (i = 12; i <= 14; i++) info_line(i, "");
+
+  info_line(9, e ? e->filename : "-");
+
+  strcpy(line, "Type: ");
+  ext[0] = 0;
+  if (!e) strcat(line, "-");
+  else if (e->isDir) strcat(line, "directory");
+  else {
+    get_uppercase_extension(e->filename, ext);
+    if (!strcmp(ext, "MZF") || !strcmp(ext, "M12")) strcat(line, "program (MZF)");
+    else if (!strcmp(ext, "DSK")) strcat(line, "floppy image (DSK)");
+    else if (!strcmp(ext, "MZQ")) strcat(line, "quick disk image (MZQ)");
+    else strcat(line, "file");
+  }
+  info_line(10, line);
+
+  strcpy(line, "Size: ");
+  if (e && !e->isDir) {
+    u32toa(e->size, num); strcat(line, num); strcat(line, " bytes");
+    if (e->size >= 1024) { strcat(line, " ("); u32toa((e->size + 512) / 1024, num); strcat(line, num); strcat(line, "k)"); }
+  } else strcat(line, "-");
+  info_line(11, line);
+
+  if (e && !e->isDir && ext[0]) {
+    dir_len = strlen(path);
+    if (path[dir_len - 1] != '/') strcat(path, "/");
+    strncat(path, e->filename, sizeof(path) - strlen(path) - 1);
+    if (read_file_head(path, head, sizeof(head))) {
+      info_line(12, error_description);
+    } else if (!strcmp(ext, "MZF") || !strcmp(ext, "M12")) {
+      strcpy(line, "MZF name: ");
+      for (i = 1; i < 18 && head[i] != 0x0d; i++) {
+        char c = (char)head[i];
+        strncat(line, (c >= 0x20 && c < 0x60) ? &c : "?", 1);
+      }
+      info_line(12, line);
+      strcpy(line, "Attr "); hex4(head[0], num); strcat(line, num + 2);
+      strcat(line, "  Load "); hex4(head[20] | (head[21] << 8), num); strcat(line, num);
+      strcat(line, "  Exec "); hex4(head[22] | (head[23] << 8), num); strcat(line, num);
+      info_line(13, line);
+      strcpy(line, "Body: "); u32toa(head[18] | (head[19] << 8), num); strcat(line, num); strcat(line, " bytes");
+      info_line(14, line);
+    } else if (!strcmp(ext, "DSK")) {
+      strcpy(line, "Tracks: "); u32toa(head[0x30], num); strcat(line, num);
+      strcat(line, "  Sides: "); u32toa(head[0x31], num); strcat(line, num);
+      info_line(12, line);
+      strcpy(line, "Creator: ");
+      for (i = 0; i < 14 && head[0x22 + i] >= 0x20 && head[0x22 + i] < 0x7f; i++)
+        strncat(line, (char *)&head[0x22 + i], 1);
+      info_line(13, line);
+    }
+    path[dir_len] = 0;
+  }
+  info_line(15, "Press any key");
+
+  wait_key();
+
+  for (i = 8; i <= 15; i++)
+    put_multi_attr_xy(1, i, 0x71, 38);
+  display_items(file_offset);
+  if (dir_items)
+    draw_selection();
+}
+
 void refresh_device(void) {
   deselect_file();
   clear_message();
@@ -427,6 +523,9 @@ void explorer_init(void) {
 void explorer_handle_key(char c) {
   if (c) initial_key = c;
   switch (c) {
+    case 0x01:
+      show_info();
+      break;
     case 0x02:
       cycle_device();
       break;

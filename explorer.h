@@ -2,7 +2,7 @@
 #define __EXPLORER_H_
 
 #define MAX_SEARCH 16
-#define MAX_ENTRIES 930
+#define MAX_ENTRIES MAX_DIR_ENTRIES
 #define MAX_DEVICES 3
 
 void explorer_init(void);
