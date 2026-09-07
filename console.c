@@ -406,7 +406,8 @@ void beep(void) __naked {
 // ~4 ms per scan on sccz80 and made BASIC's 16/64/6 windows 5 s long.
 // Column 8 (SHIFT/CTRL/BREAK) is masked to BREAK. Returns:
 //   bit0 any key down, bit1 changed vs previous scan, bit2 a key newly
-//   pressed vs scan_last, bit3 that new key is in the F-key column.
+//   pressed vs scan_last, bit3 that new key is in the F-key column,
+//   bit4 that new key is BREAK.
 static uint8_t scan_matrix(void) __naked {
   __asm
     push ix
@@ -453,8 +454,12 @@ _sm_none:
     set 2, c             ; new key
     ld a, b
     cp 1
-    jr nz, _sm_nonew
+    jr nz, _sm_notfk
     set 3, c             ; in the F-key column
+_sm_notfk:
+    cp 2
+    jr nz, _sm_nonew
+    set 4, c             ; BREAK (column 8 is masked to that bit)
 _sm_nonew:
     inc hl
     inc de
@@ -514,6 +519,7 @@ uint8_t inkey(void) {
     memcpy(scan_last, scan_cur, 10);
     rep_counter = KEY_REPEAT_DELAY;
     if (f & 8) { held_key = 0; return map_fmask((uint8_t)~scan_cur[9]); }
+    if (f & 16) { held_key = 0; return 0x1b; }   // BREAK = ESC: the ROM decoder returns 0 for it, BASIC synthesizes 0x1B too
     held_key = getk();                   // ROM decode of the key just pressed
     return held_key;
   }
@@ -524,12 +530,19 @@ uint8_t inkey(void) {
   return 0;
 }
 
-// Wait until every key is released, then for a new press. Resets the
-// scanner so a held F-key cannot dismiss a screen it opened.
-void wait_key(void) {
+// Wait until every key is released, then for a new press; returns it.
+// Resets the scanner so a held F-key cannot dismiss a screen it opened.
+// Wait until every key is released (and forget any autorepeat in flight)
+void key_release(void) {
   console_init();
   do { inkey(); } while (key_any || scan_stable);
-  while (!inkey());
+}
+
+uint8_t wait_key(void) {
+  uint8_t k;
+  key_release();
+  while (!(k = inkey()));
+  return k;
 }
 
 void loading_screen(const char* name) {

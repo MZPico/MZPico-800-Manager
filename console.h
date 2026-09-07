@@ -42,7 +42,8 @@ void clrscr(void);
 void scroll_down(uint8_t first, uint8_t number);
 void scroll_up(uint8_t first, uint8_t number);
 uint8_t inkey(void);
-void wait_key(void);
+uint8_t wait_key(void);   // all keys up, then a new press: returns it
+void key_release(void);   // all keys up (no autorepeat leaks into the caller)
 void beep(void);
 void loading_screen(const char* name);
 void get_uppercase_extension(const char* filename, char* extension);

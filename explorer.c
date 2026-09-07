@@ -283,9 +283,11 @@ void remove_last_dir(char *path, char *removed) {
 }
 
 // ---- persisted explorer state: last location and recent launches ----
-// sd:/mzpico.sav, written at every launch and directory change, read at
-// start: the explorer reopens where it was and F4 lists recent launches.
-#define SAVE_PATH "sd:/mzpico.sav"
+// mzpico.sav like mzpico.ini: sd:/ first, flash:/ as the fallback (flash is
+// always mounted, the card is optional; writes go to the card when it is
+// there, so the flash map is not worn by browsing). Written at every launch
+// and directory change, read at start: the explorer reopens where it was
+// and F4 lists recent launches. ~676 bytes.
 #define REC_N 8
 #define REC_LN 64
 typedef struct {
@@ -296,13 +298,24 @@ typedef struct {
 } explorer_state_t;
 static explorer_state_t st;
 
+static uint8_t has_volume(const char *name) {
+  uint8_t i;
+  for (i = 0; i < dev_items; i++)
+    if (!strcmp(devices[i].name, name)) return 1;
+  return 0;
+}
+
 static void save_state(void) {
   memcpy(st.magic, "MZX1", 4);
-  write_file(SAVE_PATH, (const uint8_t *)&st, sizeof(st));
+  write_file(has_volume("sd") ? "sd:/mzpico.sav" : "flash:/mzpico.sav", (const uint8_t *)&st, sizeof(st));
+}
+
+static uint8_t load_from(const char *p) {
+  return read_file(p, (uint8_t *)&st, sizeof(st)) == 0 && memcmp(st.magic, "MZX1", 4) == 0;
 }
 
 static void load_state(void) {
-  if (read_file(SAVE_PATH, (uint8_t *)&st, sizeof(st)) || memcmp(st.magic, "MZX1", 4)) {
+  if (!((has_volume("sd") && load_from("sd:/mzpico.sav")) || load_from("flash:/mzpico.sav"))) {
     memset(&st, 0, sizeof(st));
     memcpy(st.magic, "MZX1", 4);
   }
@@ -341,6 +354,10 @@ static void run_mounted(const char *full) {
 
 // Launch a file by full path (listing or recent list): mount first with
 // the listing still on screen, remember it, then run.
+// The device holds ONE open file: an MZF stays open from mount_entry() to
+// the loader, and writing the state file in between would replace it (the
+// loader then reads an empty header and returns to the menu). So: mount
+// to validate, close, save the state, mount again for the loader.
 static void launch_full(const char *full) {
   char dir[128];
   const char *slash = strrchr(full, '/');
@@ -349,11 +366,16 @@ static void launch_full(const char *full) {
     show_error(error_description);
     return;
   }
+  uc_cmd(cmdCLOSE);
   if (dl >= sizeof(dir)) dl = sizeof(dir) - 1;
   memcpy(dir, full, dl);
   dir[dl] = 0;
   if (dl > 0 && dir[dl - 1] == ':') { dir[dl] = '/'; dir[dl + 1] = 0; }
   remember_launch(dir, slash ? slash + 1 : full, full);
+  if (mount_entry(full)) {
+    show_error(error_description);
+    return;
+  }
   clear_message();
   run_mounted(full);
 }
@@ -444,7 +466,7 @@ void search(char c) {
 #define INFO_X 3
 #define INFO_W 34
 #define ATTR_FRAME 0x05
-#define ATTR_BAR_TEXT 0x75
+#define ATTR_BAR_TEXT 0x05   // black on the cyan bars (white was hard to read)
 #define ATTR_BODY 0x70
 #define ATTR_LABEL 0x60
 static uint8_t ov_top, ov_bottom;
@@ -477,9 +499,12 @@ static void overlay_open(const char *title, const char *hint, uint8_t top, uint8
   info_bar(bottom, hint, 0xfd, 0xfe, 0x15, 0x15);
 }
 
-// Restore the listing under the overlay
+// Restore the listing under the overlay. Waits for the key that closed it
+// to be released first, so it cannot autorepeat into the listing (a held CR
+// would execute the selection).
 static void overlay_close(void) {
   uint8_t r;
+  key_release();
   for (r = ov_top; r <= ov_bottom; r++)
     put_multi_attr_xy(1, r, 0x71, 38);
   display_items(file_offset);
@@ -508,7 +533,7 @@ void show_info(void) {
   size_t dir_len;
   DIR_ENTRY *e = dir_items ? &entries[file_selected] : 0;
 
-  overlay_open(" File info ", " any key ", 8, 15);
+  overlay_open(" File info ", " ESC ", 8, 15);
 
   info_line(9, "Name: ", e ? e->filename : "-");
 
@@ -592,7 +617,7 @@ void show_mounts(void) {
   }
   for (;;) {
     const char *l = mb;
-    overlay_open(" Mounts ", mountable ? (is_mzq ? " Q mount  B boot " : " 1-4 mount  B boot ") : " any key ", 8, 15);
+    overlay_open(" Mounts ", mountable ? (is_mzq ? " Q mount  B boot  ESC " : " 1-4 mount  B boot  ESC ") : " ESC ", 8, 15);
     n = get_mounts(mb, sizeof(mb));
     for (i = 0; i < n && i < 5; i++) {
       strcpy(line, "  "); line[0] = l[0]; line[1] = ':';
@@ -626,7 +651,7 @@ void show_mounts(void) {
 void show_recent(void) {
   char label[4];
   uint8_t i, k, n = 0;
-  overlay_open(" Recent ", " 1-8 launch ", 6, 16);
+  overlay_open(" Recent ", " 1-8 launch  ESC ", 6, 16);
   for (i = 0; i < REC_N; i++) {
     if (!st.recent[i][0]) break;
     label[0] = '1' + i; label[1] = ' '; label[2] = 0;
