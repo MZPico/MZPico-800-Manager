@@ -282,10 +282,83 @@ void remove_last_dir(char *path, char *removed) {
   }
 }
 
-void execute_selection(void) {
-  uint8_t i;
-  uint8_t ret=0;
+// ---- persisted explorer state: last location and recent launches ----
+// sd:/mzpico.sav, written at every launch and directory change, read at
+// start: the explorer reopens where it was and F4 lists recent launches.
+#define SAVE_PATH "sd:/mzpico.sav"
+#define REC_N 8
+#define REC_LN 64
+typedef struct {
+  char magic[4];
+  char last_path[128];
+  char last_file[32];
+  char recent[REC_N][REC_LN];
+} explorer_state_t;
+static explorer_state_t st;
+
+static void save_state(void) {
+  memcpy(st.magic, "MZX1", 4);
+  write_file(SAVE_PATH, (const uint8_t *)&st, sizeof(st));
+}
+
+static void load_state(void) {
+  if (read_file(SAVE_PATH, (uint8_t *)&st, sizeof(st)) || memcmp(st.magic, "MZX1", 4)) {
+    memset(&st, 0, sizeof(st));
+    memcpy(st.magic, "MZX1", 4);
+  }
+  st.last_path[sizeof(st.last_path) - 1] = 0;
+  st.last_file[sizeof(st.last_file) - 1] = 0;
+}
+
+static void remember_launch(const char *dir, const char *name, const char *full) {
+  uint8_t i, j;
+  strncpy(st.last_path, dir, sizeof(st.last_path) - 1);
+  strncpy(st.last_file, name, sizeof(st.last_file) - 1);
+  if (strlen(full) < REC_LN) {
+    for (i = 0; i < REC_N && strcmp(st.recent[i], full); i++);
+    if (i == REC_N) i = REC_N - 1;
+    for (j = i; j > 0; j--) memcpy(st.recent[j], st.recent[j - 1], REC_LN);
+    strcpy(st.recent[0], full);
+  }
+  save_state();
+}
+
+// Clear the screen and run a mounted entry by extension; never returns
+// for MZF/DSK/MZQ.
+static void run_mounted(const char *full) {
   char extension[16];
+  border(0);
+  clrscr();
+  loading_screen(full);
+  get_uppercase_extension(full, extension);
+  if (!strcmp(extension, "MZF") || !strcmp(extension, "M12"))
+    read_and_execute();
+  else if (!strcmp(extension, "DSK"))
+    execute_floppy();
+  else if (!strcmp(extension, "MZQ"))
+    execute_quickdisk();
+}
+
+// Launch a file by full path (listing or recent list): mount first with
+// the listing still on screen, remember it, then run.
+static void launch_full(const char *full) {
+  char dir[128];
+  const char *slash = strrchr(full, '/');
+  size_t dl = slash ? (size_t)(slash - full) : 0;
+  if (mount_entry(full)) {
+    show_error(error_description);
+    return;
+  }
+  if (dl >= sizeof(dir)) dl = sizeof(dir) - 1;
+  memcpy(dir, full, dl);
+  dir[dl] = 0;
+  if (dl > 0 && dir[dl - 1] == ':') { dir[dl] = '/'; dir[dl + 1] = 0; }
+  remember_launch(dir, slash ? slash + 1 : full, full);
+  clear_message();
+  run_mounted(full);
+}
+
+void execute_selection(void) {
   char last_dir[32];
   char *filename;
 
@@ -311,35 +384,22 @@ void execute_selection(void) {
       select_file(0);
     else
       select_filename(last_dir);
+    strncpy(st.last_path, path, sizeof(st.last_path) - 1);
+    st.last_file[0] = 0;
+    save_state();
   } else {
-    // Mount first, with the listing still on screen: on failure the frame
-    // and the selection stay usable and the path is restored.
     size_t dir_len = strlen(path);
+    uint8_t i;
     if (path[dir_len - 1] != '/') {
       strcat(path, "/");
     }
     strncat(path, filename, sizeof(path) - strlen(path) - 1);
-    ret = mount_entry(path);
-    if (ret) {
-      path[dir_len] = 0;
-      show_error(error_description);
-      return;
-    }
-    clear_message();
     for (i=0; i<255; i++) {
       put_multi_attr_xy(1, file_selected - file_offset +2, 0x16, 38);
       put_multi_attr_xy(1, file_selected - file_offset +2, 0x61, 38);
     };
-    border(0);
-    clrscr();
-    loading_screen(path);
-    get_uppercase_extension(filename, extension);
-    if (!strcmp(extension, "MZF") || !strcmp(extension, "M12"))
-      read_and_execute();
-    else if (!strcmp(extension, "DSK"))
-      execute_floppy();
-    else if (!strcmp(extension, "MZQ"))
-      execute_quickdisk();
+    launch_full(path);
+    path[dir_len] = 0;          // mount failed: back to the directory view
   }
 }
 
@@ -383,12 +443,11 @@ void search(char c) {
 // attribute, load/exec, body size); for DSK the extended-DSK geometry.
 #define INFO_X 3
 #define INFO_W 34
-#define INFO_TOP 8
-#define INFO_BOTTOM 15
 #define ATTR_FRAME 0x05
 #define ATTR_BAR_TEXT 0x75
 #define ATTR_BODY 0x70
 #define ATTR_LABEL 0x60
+static uint8_t ov_top, ov_bottom;
 
 static void info_line(uint8_t row, const char *label, const char *value) {
   uint8_t ln = strlen(label);
@@ -408,10 +467,36 @@ static void info_bar(uint8_t row, const char *text, uint8_t tl, uint8_t tr, uint
   put_str_attr_xy(INFO_X + (INFO_W - strlen(text)) / 2, row, text, ATTR_BAR_TEXT);
 }
 
+// Framed overlay rows top..bottom in the manager look (cyan frame with the
+// list box's chamfered corners, black interior); rows between are blank
+static void overlay_open(const char *title, const char *hint, uint8_t top, uint8_t bottom) {
+  uint8_t r;
+  ov_top = top; ov_bottom = bottom;
+  info_bar(top, title, 0xfe, 0xfd, 0x51, 0x51);
+  for (r = top + 1; r < bottom; r++) info_line(r, "", "");
+  info_bar(bottom, hint, 0xfd, 0xfe, 0x15, 0x15);
+}
+
+// Restore the listing under the overlay
+static void overlay_close(void) {
+  uint8_t r;
+  for (r = ov_top; r <= ov_bottom; r++)
+    put_multi_attr_xy(1, r, 0x71, 38);
+  display_items(file_offset);
+  if (dir_items)
+    draw_selection();
+}
+
 static void hex4(uint16_t v, char *out) {
   static const char h[] = "0123456789ABCDEF";
   out[0] = h[(v >> 12) & 15]; out[1] = h[(v >> 8) & 15];
   out[2] = h[(v >> 4) & 15]; out[3] = h[v & 15]; out[4] = 0;
+}
+
+// Last n characters of a path for a 28-column value field
+static const char *tail_of(const char *p, uint8_t n) {
+  size_t l = strlen(p);
+  return l > n ? p + l - n : p;
 }
 
 void show_info(void) {
@@ -423,10 +508,7 @@ void show_info(void) {
   size_t dir_len;
   DIR_ENTRY *e = dir_items ? &entries[file_selected] : 0;
 
-  // frame: top/bottom bars with the list box's chamfered corners
-  info_bar(INFO_TOP, " File info ", 0xfe, 0xfd, 0x51, 0x51);
-  info_bar(INFO_BOTTOM, " any key ", 0xfd, 0xfe, 0x15, 0x15);
-  for (i = 12; i <= 14; i++) info_line(i, "", "");
+  overlay_open(" File info ", " any key ", 8, 15);
 
   info_line(9, "Name: ", e ? e->filename : "-");
 
@@ -480,18 +562,91 @@ void show_info(void) {
   }
 
   wait_key();
+  overlay_close();
+}
 
-  for (i = INFO_TOP; i <= INFO_BOTTOM; i++)
-    put_multi_attr_xy(1, i, 0x71, 38);
-  display_items(file_offset);
-  if (dir_items)
-    draw_selection();
+// F3: mount manager. Shows what is in floppy drives 1-4 and the Quick
+// Disk; with a DSK, MZQ or directory selected, 1-4 / Q mount it there
+// (session-only, like the ini mounts) and B boots it (DSK/MZQ). Any other
+// key closes.
+void show_mounts(void) {
+  char mb[5 * 70];
+  char line[40];
+  char ext[16];
+  uint8_t i, k, n, mountable = 0, is_mzq = 0;
+  size_t dir_len = strlen(path);
+  DIR_ENTRY *e = dir_items ? &entries[file_selected] : 0;
+
+  ext[0] = 0;
+  if (e) {
+    if (e->isDir) mountable = strcmp(e->filename, "..") != 0;
+    else {
+      get_uppercase_extension(e->filename, ext);
+      if (!strcmp(ext, "DSK")) mountable = 1;
+      else if (!strcmp(ext, "MZQ")) { mountable = 1; is_mzq = 1; }
+    }
+  }
+  if (mountable) {
+    if (path[dir_len - 1] != '/') strcat(path, "/");
+    strncat(path, e->filename, sizeof(path) - strlen(path) - 1);
+  }
+  for (;;) {
+    const char *l = mb;
+    overlay_open(" Mounts ", mountable ? (is_mzq ? " Q mount  B boot " : " 1-4 mount  B boot ") : " any key ", 8, 15);
+    n = get_mounts(mb, sizeof(mb));
+    for (i = 0; i < n && i < 5; i++) {
+      strcpy(line, "  "); line[0] = l[0]; line[1] = ':';
+      info_line(9 + i, line, l[2] ? tail_of(l + 2, 27) : "-");
+      l += strlen(l) + 1;
+    }
+    if (mountable) info_line(14, "", tail_of(e->filename, 30));
+    k = wait_key();
+    if (!mountable) break;
+    if (k >= 'a' && k <= 'z') k -= 32;
+    if (!is_mzq && k >= '1' && k <= '4') {
+      if (mount_into(k - '1', path)) show_error(error_description);
+      continue;
+    }
+    if (is_mzq && k == 'Q') {
+      if (mount_into(UC_DEV_QD, path)) show_error(error_description);
+      continue;
+    }
+    if (k == 'B' && !e->isDir) {
+      overlay_close();
+      launch_full(path);
+      break;
+    }
+    break;
+  }
+  path[dir_len] = 0;
+  overlay_close();
+}
+
+// F4: recent launches, newest first; 1-8 launches, any other key closes
+void show_recent(void) {
+  char label[4];
+  uint8_t i, k, n = 0;
+  overlay_open(" Recent ", " 1-8 launch ", 6, 16);
+  for (i = 0; i < REC_N; i++) {
+    if (!st.recent[i][0]) break;
+    label[0] = '1' + i; label[1] = ' '; label[2] = 0;
+    info_line(7 + i, label, tail_of(st.recent[i], 28));
+    n++;
+  }
+  if (!n) info_line(7, "", "nothing launched yet");
+  k = wait_key();
+  overlay_close();
+  if (k >= '1' && k < '1' + n)
+    launch_full(st.recent[k - '1']);
 }
 
 void refresh_device(void) {
   deselect_file();
   clear_message();
   sprintf(path, "%s:/", devices[device_selected].name);
+  strncpy(st.last_path, path, sizeof(st.last_path) - 1);
+  st.last_file[0] = 0;
+  save_state();
   display_path(path);
   read_dir(path);
   display_items(0);
@@ -510,6 +665,28 @@ void cycle_device(void) {
     device_selected = 0;
   search_ln = 0;
   refresh_device();
+}
+
+// Reopen the saved location (volume must exist and list); selects the
+// last launched file. Returns 0 when there is nothing to resume.
+static uint8_t resume_state(void) {
+  uint8_t i;
+  const char *colon = strchr(st.last_path, ':');
+  if (!st.last_path[0] || !colon) return 0;
+  for (i = 0; i < dev_items; i++)
+    if (!strncmp(devices[i].name, st.last_path, colon - st.last_path) && strlen(devices[i].name) == (size_t)(colon - st.last_path))
+      break;
+  if (i == dev_items) return 0;
+  device_selected = i;
+  deselect_file();
+  strcpy(path, st.last_path);
+  display_path(path);
+  dir_items = 0;
+  if (list_dir(path, &dir_items, entries) || dir_items == 0) return 0;
+  display_items(0);
+  select_file(0);
+  if (st.last_file[0]) select_filename(st.last_file);
+  return 1;
 }
 
 void explorer_init(void) {
@@ -534,7 +711,11 @@ void explorer_init(void) {
   }
 
   device_selected = 0;
-  refresh_device();
+  load_state();
+  if (resume_state())
+    initial_key = 1;             // a resumed view is intent: WiFi connecting must not switch to cloud
+  else
+    refresh_device();
 }
 
 void explorer_handle_key(char c) {
@@ -545,6 +726,12 @@ void explorer_handle_key(char c) {
       break;
     case 0x02:
       cycle_device();
+      break;
+    case 0x03:
+      show_mounts();
+      break;
+    case 0x04:
+      show_recent();
       break;
     case 0x11:
       select_next(1);

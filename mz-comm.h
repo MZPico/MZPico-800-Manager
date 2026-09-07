@@ -34,8 +34,10 @@
 #define cmdX_INFO       0x95
 #define cmdX_SETSORT    0x96
 #define cmdX_SERVEDSUM  0x97
+#define cmdX_MOUNTS     0x98
 
 #define UC_FA_READ 0x01
+#define UC_FA_CREATE_WRITE 0x0A   // FA_WRITE | FA_CREATE_ALWAYS
 
 // Status byte 0 bits
 #define UC_ST_BUSY     0x01
@@ -54,7 +56,7 @@
 #define DEVICE_LN 8
 // Listing cap shared by list_dir() and the explorer's entries[]: 37 bytes each,
 // and the explorer must keep a few KB between its BSS and the stack at 0xD000
-#define MAX_DIR_ENTRIES 800
+#define MAX_DIR_ENTRIES 700
 
 #define MAX_CONFIG_KEY_LENGTH 16
 #define MAX_CONFIG_VALUE_LENGTH 64
@@ -98,6 +100,11 @@ uint8_t list_dev(uint16_t *entries_cnt, DEV_ENTRY *entries);
 uint8_t get_config(const char *section, uint16_t *entries_cnt, ConfigEntry *entries);
 uint8_t get_wifi_status(void);
 uint8_t read_file_head(const char *path, uint8_t *buf, uint8_t n); // first n bytes of a file
+uint8_t read_file(const char *path, uint8_t *buf, uint16_t n);     // first n bytes (short file: zeros)
+uint8_t write_file(const char *path, const uint8_t *buf, uint16_t n); // create/overwrite
+uint8_t mount_into(uint8_t dev, const char *path);                 // FDDMOUNT: 0-3 floppy, 5 QD
+uint8_t get_mounts(char *buf, uint8_t max);                        // "1:path\0" x4 + "Q:path\0", returns count
+void uc_write(const uint8_t *src, uint16_t n);                     // n data-port bytes via OTIR
 uint8_t mount_entry(const char *path);
 void read_and_execute(void);
 void execute_floppy(void);

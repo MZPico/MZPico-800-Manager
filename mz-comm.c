@@ -95,6 +95,36 @@ _ucr_done:
   __endasm;
 }
 
+// uc_write(src, n): OTIR in 256-byte blocks (putc into the open file)
+void uc_write(const uint8_t *src, uint16_t n) __naked {
+  __asm
+    push iy
+    ld iy, 4
+    add iy, sp
+    ld e, (iy+0)          ; n low
+    ld d, (iy+1)          ; n high
+    ld l, (iy+2)          ; src
+    ld h, (iy+3)
+    ld c, UC_DATA_PORT
+_ucw_blocks:
+    ld b, 0
+    ld a, d
+    or a
+    jr z, _ucw_rest
+    otir
+    dec d
+    jr _ucw_blocks
+_ucw_rest:
+    ld b, e
+    or b
+    jr z, _ucw_done
+    otir
+_ucw_done:
+    pop iy
+    ret
+  __endasm;
+}
+
 void uc_wstr(const char *s) {
   while (*s) uc_wr((uint8_t)*s++);
   uc_wr(0x0d);
@@ -298,6 +328,60 @@ uint8_t read_file_head(const char *path, uint8_t *buf, uint8_t n) {
   return 0;
 }
 
+uint8_t read_file(const char *path, uint8_t *buf, uint16_t n) {
+  uint8_t st[4];
+  uc_cmd(cmdOPEN);
+  uc_wr(UC_FA_READ);
+  uc_wstr(path);
+  uc_status4(st);
+  if (check_error(st)) return 1;
+  uc_read(buf, n);
+  uc_cmd(cmdCLOSE);
+  return 0;
+}
+
+uint8_t write_file(const char *path, const uint8_t *buf, uint16_t n) {
+  uint8_t st[4];
+  uc_cmd(cmdOPEN);
+  uc_wr(UC_FA_CREATE_WRITE);
+  uc_wstr(path);
+  uc_status4(st);
+  if (check_error(st)) return 1;
+  uc_write(buf, n);
+  uc_status4(st);
+  uc_cmd(cmdCLOSE);
+  return check_error(st);
+}
+
+// FDDMOUNT into device dev (0-3 = floppy drives 1-4, 5 = Quick Disk); a
+// DSK/MZQ image or a directory, session-only like the ini mounts
+uint8_t mount_into(uint8_t dev, const char *path) {
+  uint8_t st[4];
+  uc_cmd(cmdFDDMOUNT);
+  uc_wr(dev);
+  uc_wstr(path);
+  uc_status4(st);
+  return check_error(st) ? 1 : 0;
+}
+
+// Current mounts: lines "1:path" .. "4:path", "Q:path" (empty path = empty
+// drive), 0-terminated back to back in buf; returns the number of lines
+uint8_t get_mounts(char *buf, uint8_t max) {
+  uint8_t st[4];
+  uint8_t i = 0, lines = 0;
+  uc_cmd(cmdX_MOUNTS);
+  uc_status4(st);
+  if (check_error(st)) return 0;
+  while (st[0] & UC_ST_OUTPUT) {
+    uint8_t c = uc_rd();
+    if (c == 0x0d) { if (i < max) buf[i++] = 0; lines++; }
+    else if (i < max - 1) buf[i++] = (char)c;
+    uc_status4(st);
+  }
+  buf[max - 1] = 0;
+  return lines;
+}
+
 static void get_uppercase_ext(const char *path, char *ext) {
   const char *dot = strrchr(path, '.');
   uint8_t i = 0;
@@ -319,19 +403,11 @@ uint8_t mount_entry(const char *path) {
   char ext[5];
 
   get_uppercase_ext(path, ext);
-  if (!strcmp(ext, "DSK")) {
-    uc_cmd(cmdFDDMOUNT);
-    uc_wr(UC_DEV_FD1);
-    uc_wstr(path);
-  } else if (!strcmp(ext, "MZQ")) {
-    uc_cmd(cmdFDDMOUNT);
-    uc_wr(UC_DEV_QD);
-    uc_wstr(path);
-  } else {
-    uc_cmd(cmdOPEN);
-    uc_wr(UC_FA_READ);
-    uc_wstr(path);
-  }
+  if (!strcmp(ext, "DSK")) return mount_into(UC_DEV_FD1, path);
+  if (!strcmp(ext, "MZQ")) return mount_into(UC_DEV_QD, path);
+  uc_cmd(cmdOPEN);
+  uc_wr(UC_FA_READ);
+  uc_wstr(path);
   uc_status4(st);
   if (check_error(st)) return 1;
   return 0;
