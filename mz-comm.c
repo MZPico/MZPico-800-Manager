@@ -178,14 +178,22 @@ static int entry_less(const DIR_ENTRY *a, const DIR_ENTRY *b) {
   }
 }
 
+// Shell sort (Knuth gaps): the records are 37 bytes and the Z80 moves them
+// by value, so the O(n^2) insertion sort took seconds on a few hundred
+// entries; this stays in place (no index array - the explorer has ~2.8 KB
+// between BSS and the stack) at ~n^1.3 moves. entry_less is a total order
+// (FAT names are unique case-insensitively), so stability is not needed.
 static void dir_sort(DIR_ENTRY *e, uint16_t n) {
-  uint16_t i, j;
+  uint16_t gap, i, j;
   DIR_ENTRY key;
-  for (i = 1; i < n; i++) {
-    key = e[i];
-    j = i;
-    while (j > 0 && entry_less(&key, &e[j - 1])) { e[j] = e[j - 1]; j--; }
-    e[j] = key;
+  for (gap = 1; gap < n / 3; gap = gap * 3 + 1);
+  for (; gap > 0; gap /= 3) {
+    for (i = gap; i < n; i++) {
+      key = e[i];
+      j = i;
+      while (j >= gap && entry_less(&key, &e[j - gap])) { e[j] = e[j - gap]; j -= gap; }
+      e[j] = key;
+    }
   }
 }
 
