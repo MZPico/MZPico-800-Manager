@@ -3,27 +3,50 @@
 
 #include <stdint.h>
 
-#define COMMAND_PORT 0x40
-#define DATA_PORT 0x41
-#define RESET_PORT 0x44
+// Unicard-compatible repository (MZPico `unicard` device): command/status
+// port and data port. Protocol: mz800emu unimgr.c / unimgr_commands.h and
+// docs/unicard-migration-plan.md in the firmware repo.
+#define UC_CMD_PORT  0x50
+#define UC_DATA_PORT 0x51
 
-#define REPO_CMD_LIST_DIR   0x01
-#define REPO_CMD_MOUNT      0x03
-#define REPO_CMD_UPLOAD     0x04
-#define REPO_CMD_LIST_DEV   0x05
-#define REPO_CMD_CHDEV      0x06
-#define REPO_CMD_LIST_WF    0x07
-#define REPO_CMD_CONN_WF    0x08
-#define REPO_CMD_LIST_REPOS 0x09
-#define REPO_CMD_CHREPO     0x0a
-#define REPO_CMD_GET_CONFIG 0x0b
-#define REPO_CMD_GET_WIFI_STATUS 0x0c
+#define cmdRESET     0x00
+#define cmdASCII     0x01
+#define cmdSHASCII   0x02
+#define cmdSTSR      0x03
+#define cmdSTORNO    0x04
+#define cmdREV       0x05
+#define cmdREVD      0x06
+#define cmdFDDMOUNT  0x10
+#define cmdCHDIR     0x21
+#define cmdGETCWD    0x22
+#define cmdSTAT      0x30
+#define cmdREADDIR   0x41
+#define cmdNEXT      0x43
+#define cmdOPEN      0x50
+#define cmdSEEK      0x51
+#define cmdCLOSE     0x54
+#define cmdSIZE      0x56
+// MZPico extensions
+#define cmdX_LISTVOL    0x90
+#define cmdX_GETCONFIG  0x92
+#define cmdX_WIFISTATUS 0x93
+#define cmdX_INFO       0x95
+#define cmdX_SETSORT    0x96
+#define cmdX_SERVEDSUM  0x97
 
-#define COMMAND_RESULT_NONE 0x00
-#define COMMAND_RESULT_ACCEPTED 0x01
-#define COMMAND_RESULT_IN_PROGRESS 0x02
-#define COMMAND_RESULT_OK 0x03
-#define COMMAND_RESULT_ERR 0x04
+#define UC_FA_READ 0x01
+
+// Status byte 0 bits
+#define UC_ST_BUSY     0x01
+#define UC_ST_OUTPUT   0x02
+#define UC_ST_STREAM   0x04
+#define UC_ST_READFILE 0x08
+#define UC_ST_INPROG   0x40   // MZPico: command running on core 0 (cloud) - poll
+#define UC_ST_ERROR    0x80
+
+// FDDMOUNT device ids (uc3 numbering)
+#define UC_DEV_FD1 0
+#define UC_DEV_QD  5
 
 #define ERROR_DESCRIPTION_LN 32
 #define FILENAME_LN 32
@@ -39,11 +62,6 @@
 #define WIFI_STATUS_DISCONNECTED 4
 #define WIFI_STATUS_ERROR        5
 #define WIFI_STATUS_NOT_SUPPORTED 6
-
-typedef struct {
-  uint16_t ln;
-  void *data;
-} comm_params_t;
 
 typedef struct {
   uint8_t isDir;
@@ -63,10 +81,18 @@ typedef struct {
 
 extern char error_description[ERROR_DESCRIPTION_LN];
 
-uint8_t execute_command(uint8_t command, comm_params_t *in_params, comm_params_t *out_params);
+// Low-level transport (also usable by other Z80 programs)
+void uc_cmd(uint8_t command);
+void uc_wr(uint8_t data);
+uint8_t uc_rd(void);
+void uc_status4(uint8_t *status);          // STSR, then the 4 status bytes
+void uc_read(uint8_t *dst, uint16_t n);    // n data-port bytes via INIR
+void uc_wstr(const char *s);               // string parameter, 0x0D terminated
+
 uint8_t list_dir(const char *path, uint16_t *entries_cnt, DIR_ENTRY *entries);
 uint8_t list_dev(uint16_t *entries_cnt, DEV_ENTRY *entries);
 uint8_t get_config(const char *section, uint16_t *entries_cnt, ConfigEntry *entries);
+uint8_t get_wifi_status(void);
 uint8_t mount_entry(const char *path);
 void read_and_execute(void);
 void execute_floppy(void);
