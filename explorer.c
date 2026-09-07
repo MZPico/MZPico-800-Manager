@@ -27,13 +27,24 @@ uint8_t search_ln;
 char path[255];
 
 
+// Bottom line: [n/m] counter at x=1..9, messages at x=11..38
+void clear_message(void) {
+  put_multi_char_xy(11, 23, ' ', 28);
+}
+
+void show_error(const char *msg) {
+  char line[29];
+  strncpy(line, msg, 28);
+  line[28] = 0;
+  clear_message();
+  put_str_xy(11, 23, line);
+}
+
 void read_dir(char *path) {
   uint8_t ret;
   ret = list_dir(path, &dir_items, entries);
   if (ret)
-  {
-    put_str_xy(15, 23, error_description);
-  }
+    show_error(error_description);
 }
 
 
@@ -55,7 +66,7 @@ void u32toa(uint32_t value, char *str) {
     *str = 0;
 }
 
-void display_item(uint8_t index, uint8_t screen_line) {
+void display_item(uint16_t index, uint8_t screen_line) {
     DIR_ENTRY *entry = &entries[index];
     char fileinfo[40];
     char *p = fileinfo;
@@ -130,19 +141,23 @@ void display_items(uint16_t offset) {
     put_str_xy(1, i+2, line);
 }
 
-void select_file(uint8_t index) {
+// Drop the selection bar and the [n/m] counter (before a listing changes)
+void deselect_file(void) {
+    uint16_t old_line = file_selected - file_offset + 2;
+    put_char_attr_xy(0, old_line, ' ', 0x75);
+    put_char_attr_xy(39, old_line, ' ', 0x75);
+    put_multi_attr_xy(1, old_line, 0x71, 38);
+    put_multi_char_xy(1, 23, ' ', 9);
+}
+
+// Entry indices are 16-bit everywhere: dir_items can exceed 255
+void select_file(uint16_t index) {
     uint16_t old_line = file_selected - file_offset + 2;
     uint16_t new_line;
-    uint8_t i;
 
     // Clear old selection indicators
     put_char_attr_xy(0, old_line, ' ', 0x75);
     put_char_attr_xy(39, old_line, ' ', 0x75);
-    if (index == -1) {
-        put_multi_attr_xy(1, old_line, 0x71, 38);
-        put_multi_char_xy(1, 23, ' ', 9);
-        return;
-    }
 
     uint8_t needs_redraw = 0;
 
@@ -295,22 +310,27 @@ void execute_selection(void) {
     else
       select_filename(last_dir);
   } else {
+    // Mount first, with the listing still on screen: on failure the frame
+    // and the selection stay usable and the path is restored.
+    size_t dir_len = strlen(path);
+    if (path[dir_len - 1] != '/') {
+      strcat(path, "/");
+    }
+    strncat(path, filename, sizeof(path) - strlen(path) - 1);
+    ret = mount_entry(path);
+    if (ret) {
+      path[dir_len] = 0;
+      show_error(error_description);
+      return;
+    }
+    clear_message();
     for (i=0; i<255; i++) {
       put_multi_attr_xy(1, file_selected - file_offset +2, 0x16, 38);
       put_multi_attr_xy(1, file_selected - file_offset +2, 0x61, 38);
     };
     border(0);
     clrscr();
-    if (path[strlen(path) - 1] != '/') {
-      strcat(path, "/");
-    }
-    strncat(path, filename, sizeof(path) - strlen(path) - 1);
     loading_screen(path);
-    ret = mount_entry(path);
-    if (ret) {
-      put_str_xy(15, 23, error_description);
-      return;
-    }
     get_uppercase_extension(filename, extension);
     if (!strcmp(extension, "MZF") || !strcmp(extension, "M12"))
       read_and_execute();
@@ -355,7 +375,8 @@ void search(char c) {
 }
 
 void refresh_device(void) {
-  select_file(-1);
+  deselect_file();
+  clear_message();
   sprintf(path, "%s:/", devices[device_selected].name);
   display_path(path);
   read_dir(path);
@@ -390,7 +411,7 @@ void explorer_init(void) {
 
   uint8_t ret = list_dev(&dev_items, devices);
   if (ret) {
-    put_str_xy(15, 23, error_description);
+    show_error(error_description);
   }
   for (uint8_t i=0; i<dev_items; i++) {
     if (strcmp(devices[i].name, "sd") == 0) {

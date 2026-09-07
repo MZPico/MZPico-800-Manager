@@ -115,7 +115,14 @@ uint8_t (* exec_with_mount_factory(const char *entry_name))(void) {
 
 uint8_t execute_with_mount(const char *entry_name) {
     char extension[5];
-    mount_entry(entry_name);
+    if (mount_entry(entry_name)) {
+        // Nothing is open: launching now would stream zeros into the loader
+        // and jump into garbage. Show why, wait for a key, back to the menu.
+        put_str_xy(2, 22, error_description);
+        while (inkey());
+        while (!inkey());
+        return 0;
+    }
     if (entry_name[0] != '@')
     {
         clrscr();
