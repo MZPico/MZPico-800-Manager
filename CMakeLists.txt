@@ -7,12 +7,6 @@ if(NOT ZCC_EXECUTABLE)
     message(FATAL_ERROR "z88dk.zcc not found. Make sure z88dk is installed and z88dk.zcc is in your PATH.")
 endif()
 
-# Optional test mode
-option(ENABLE_TEST "Enable test mode" OFF)
-if(ENABLE_TEST)
-    set(TEST_DEFINE -DMZ800PICO_TEST)
-endif()
-
 # Common flags
 set(COMMON_FLAGS
     +mz
@@ -21,7 +15,6 @@ set(COMMON_FLAGS
     -pragma-define:REGISTER_SP=0xd000
     --list
     -m
-    ${TEST_DEFINE}
 )
 
 # Explorer target
@@ -40,6 +33,7 @@ add_custom_command(
     COMMAND ${ZCC_EXECUTABLE} ${COMMON_FLAGS} -o ${EXPLORER_OUTPUT} ${EXPLORER_SOURCES}
     DEPENDS ${EXPLORER_SOURCES}
     COMMAND ${CMAKE_COMMAND} -E rename ${EXPLORER_OUTPUT}.mzt ${EXPLORER_MZF}
+    COMMAND ${CMAKE_COMMAND} -DMAP=${CMAKE_CURRENT_BINARY_DIR}/${EXPLORER_OUTPUT}.map -DLIMIT=0xCC00 -P ${CMAKE_CURRENT_SOURCE_DIR}/check_tail.cmake
     WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
 )
 
@@ -60,6 +54,7 @@ add_custom_command(
     COMMAND ${ZCC_EXECUTABLE} ${COMMON_FLAGS} -o ${MENU_OUTPUT} ${MENU_SOURCES}
     DEPENDS ${MENU_SOURCES}
     COMMAND ${CMAKE_COMMAND} -E rename ${MENU_OUTPUT}.mzt ${MENU_MZF}
+    COMMAND ${CMAKE_COMMAND} -DMAP=${CMAKE_CURRENT_BINARY_DIR}/${MENU_OUTPUT}.map -DLIMIT=0xCC00 -P ${CMAKE_CURRENT_SOURCE_DIR}/check_tail.cmake
     WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
 )
 

@@ -510,7 +510,6 @@ void cycle_device(void) {
     device_selected = 0;
   search_ln = 0;
   refresh_device();
-  for (uint32_t i=0; i<5000; i++);
 }
 
 void explorer_init(void) {

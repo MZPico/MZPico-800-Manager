@@ -30,7 +30,6 @@
 #define C8_LIGHT_WHITE 0x0f
 
 #define ATT(front, back) ((front)*16+(back))
-#define ATT_ALT(front, back) (0x8000+(front)*16+(back))
 
 void console_init(void);
 void put_str_xy(uint8_t x, uint8_t y, const char *s);

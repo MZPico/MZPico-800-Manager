@@ -357,6 +357,22 @@ _read_and_execute_start:
     ld hl, MZF_HEADER_START
     inir
 
+    ; Validate the header before the body overwrites this program: a body
+    ; of 0 bytes (nothing was open, the device streams zeros) or one that
+    ; would not fit below the stack at 0xD000 (0x1200 + size <= 0xD000)
+    ; means the file is not a program we can run. Back to the menu then.
+    ld de, (MZF_SIZE)
+    ld a, d
+    or e
+    jr z, _re_bad_header
+    ld a, d
+    cp 0xBE
+    jr c, _re_header_ok
+    jr nz, _re_bad_header
+    ld a, e
+    or a
+    jr nz, _re_bad_header
+_re_header_ok:
     ld hl, MZF_BODY_TARGET
     ld de, (MZF_SIZE)
 
@@ -384,6 +400,28 @@ _re_done:
     ld hl, MZF_SIZE
     ld sp, MZF_HEADER_START
     jp 0xecfc     ; relocate and execute
+_re_bad_header:
+    ; CLOSE whatever is open, OPEN the embedded menu, restart this loader
+    ; (relocated copy: no data references, the string is emitted inline)
+    ld a, cmdCLOSE
+    out (UC_CMD_PORT), a
+    ld a, cmdOPEN
+    out (UC_CMD_PORT), a
+    ld a, UC_FA_READ
+    out (UC_DATA_PORT), a
+    ld a, 0x40        ; '@'
+    out (UC_DATA_PORT), a
+    ld a, 0x6d        ; 'm'
+    out (UC_DATA_PORT), a
+    ld a, 0x65        ; 'e'
+    out (UC_DATA_PORT), a
+    ld a, 0x6e        ; 'n'
+    out (UC_DATA_PORT), a
+    ld a, 0x75        ; 'u'
+    out (UC_DATA_PORT), a
+    ld a, 0x0d
+    out (UC_DATA_PORT), a
+    jp LOADER_TARGET
 _read_and_execute_end:
   __endasm;
 }
