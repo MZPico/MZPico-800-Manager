@@ -27,9 +27,12 @@ uint8_t search_ln;
 char path[255];
 
 
-// Bottom line: [n/m] counter at x=1..9, messages at x=11..38
+// Bottom line: [n/m] counter at x=1..9, messages at x=11..38; a message
+// stays until the next key press
+static uint8_t msg_shown;
 void clear_message(void) {
   put_multi_char_xy(11, 23, ' ', 28);
+  msg_shown = 0;
 }
 
 void show_error(const char *msg) {
@@ -38,6 +41,7 @@ void show_error(const char *msg) {
   line[28] = 0;
   clear_message();
   put_str_xy(11, 23, line);
+  msg_shown = 1;
 }
 
 void read_dir(char *path) {
@@ -241,6 +245,7 @@ void display_path(char *path) {
   put_str_xy(1, 1, path);
   uint16_t ln = strlen(path);
   put_multi_char_xy(ln + 1, 1, ' ', 37 - ln);
+  if (!list_launchable_only) put_str_attr_xy(35, 1, "ALL", 0x65);
 }
 
 uint8_t is_root_directory(const char *path) {
@@ -323,15 +328,19 @@ static void load_state(void) {
   st.last_file[sizeof(st.last_file) - 1] = 0;
 }
 
+// full may point INTO st.recent (a launch from the recent list): copy it
+// before the list is re-ordered, or the slot changes under the caller.
 static void remember_launch(const char *dir, const char *name, const char *full) {
+  char item[REC_LN];
   uint8_t i, j;
   strncpy(st.last_path, dir, sizeof(st.last_path) - 1);
   strncpy(st.last_file, name, sizeof(st.last_file) - 1);
   if (strlen(full) < REC_LN) {
-    for (i = 0; i < REC_N && strcmp(st.recent[i], full); i++);
+    strcpy(item, full);
+    for (i = 0; i < REC_N && strcmp(st.recent[i], item); i++);
     if (i == REC_N) i = REC_N - 1;
     for (j = i; j > 0; j--) memcpy(st.recent[j], st.recent[j - 1], REC_LN);
-    strcpy(st.recent[0], full);
+    strcpy(st.recent[0], item);
   }
   save_state();
 }
@@ -380,6 +389,21 @@ static void launch_full(const char *full) {
   run_mounted(full);
 }
 
+// Footer legend: F1..F5, and with SHIFT held the shifted set
+static uint8_t footer_shifted;
+void draw_footer(uint8_t shifted) {
+  footer_shifted = shifted;
+  put_str_attr_xy(0, 24, shifted ? "        Del    Ren    Mkd    All    Quit"
+                                 : "        Inf    Dev    Mnt    Rec    Quit", 0x70);
+  put_str_attr_xy(0, 24, "\xc1\xc2\xc3\xc4", 0x60);
+  put_str_attr_xy(5, 24, "F1", 0x06);
+  put_str_attr_xy(12, 24, "F2", 0x06);
+  put_str_attr_xy(19, 24, "F3", 0x06);
+  put_str_attr_xy(26, 24, "F4", 0x06);
+  put_str_attr_xy(33, 24, "F5", 0x06);
+}
+
+void show_info(void);
 void execute_selection(void) {
   char last_dir[32];
   char *filename;
@@ -412,10 +436,17 @@ void execute_selection(void) {
   } else {
     size_t dir_len = strlen(path);
     uint8_t i;
+    char ext[16];
     if (path[dir_len - 1] != '/') {
       strcat(path, "/");
     }
     strncat(path, filename, sizeof(path) - strlen(path) - 1);
+    get_uppercase_extension(filename, ext);
+    if (strcmp(ext, "MZF") && strcmp(ext, "M12") && strcmp(ext, "DSK") && strcmp(ext, "MZQ")) {
+      path[dir_len] = 0;
+      show_info();            // not launchable: show what it is instead
+      return;
+    }
     for (i=0; i<255; i++) {
       put_multi_attr_xy(1, file_selected - file_offset +2, 0x16, 38);
       put_multi_attr_xy(1, file_selected - file_offset +2, 0x61, 38);
@@ -661,8 +692,93 @@ void show_recent(void) {
   if (!n) info_line(7, "", "nothing launched yet");
   k = wait_key();
   overlay_close();
-  if (k >= '1' && k < '1' + n)
-    launch_full(st.recent[k - '1']);
+  if (k >= '1' && k < '1' + n) {
+    char full[REC_LN];
+    strcpy(full, st.recent[k - '1']);   // the launch re-orders st.recent
+    launch_full(full);
+  }
+}
+
+// ---- file operations (SHIFT+F1..F4) ----
+// Full path of the selected entry into buf (the directory path + name)
+static void selected_full(char *buf, size_t max) {
+  size_t l = strlen(path);
+  strncpy(buf, path, max - 1); buf[max - 1] = 0;
+  if (l && buf[l - 1] != '/' && l < max - 1) strcat(buf, "/");
+  strncat(buf, entries[file_selected].filename, max - strlen(buf) - 1);
+}
+
+// Re-list the current directory and put the cursor on name (or index)
+static void relist(const char *name, uint16_t index) {
+  deselect_file();
+  read_dir(path);
+  display_items(0);
+  if (dir_items == 0) { put_str_xy(5, 10, "No files found on this device"); return; }
+  if (index >= dir_items) index = dir_items - 1;
+  select_file(index);
+  if (name && name[0]) select_filename(name);
+}
+
+void delete_selected(void) {
+  char full[160];
+  uint8_t k;
+  if (!dir_items || !strcmp(entries[file_selected].filename, "..")) return;
+  selected_full(full, sizeof(full));
+  overlay_open(" Delete ", " Y delete  ESC ", 9, 13);
+  info_line(10, "", tail_of(entries[file_selected].filename, 30));
+  info_line(11, "", entries[file_selected].isDir ? "directory (must be empty)" : "file");
+  k = wait_key();
+  overlay_close();
+  if (k != 'Y' && k != 'y') return;
+  if (fs_unlink(full)) { show_error(error_description); return; }
+  relist(0, file_selected);
+}
+
+void rename_selected(void) {
+  char full[160];
+  char newp[160];
+  char name[32];
+  uint8_t ok;
+  size_t l;
+  if (!dir_items || !strcmp(entries[file_selected].filename, "..")) return;
+  selected_full(full, sizeof(full));
+  strncpy(name, entries[file_selected].filename, sizeof(name) - 1); name[sizeof(name) - 1] = 0;
+  overlay_open(" Rename ", " CR ok  ESC ", 9, 13);
+  info_line(10, "", "New name:");
+  ok = input_line(INFO_X + 2, 11, INFO_W - 4, name, sizeof(name));
+  overlay_close();
+  if (!ok || !name[0] || !strcmp(name, entries[file_selected].filename)) return;
+  l = strlen(path);
+  strncpy(newp, path, sizeof(newp) - 1); newp[sizeof(newp) - 1] = 0;
+  if (l && newp[l - 1] != '/') strcat(newp, "/");
+  strncat(newp, name, sizeof(newp) - strlen(newp) - 1);
+  if (fs_rename(full, newp)) { show_error(error_description); return; }
+  relist(name, file_selected);
+}
+
+void mkdir_prompt(void) {
+  char newp[160];
+  char name[32];
+  uint8_t ok;
+  size_t l;
+  name[0] = 0;
+  overlay_open(" New folder ", " CR ok  ESC ", 9, 13);
+  info_line(10, "", "Name:");
+  ok = input_line(INFO_X + 2, 11, INFO_W - 4, name, sizeof(name));
+  overlay_close();
+  if (!ok || !name[0]) return;
+  l = strlen(path);
+  strncpy(newp, path, sizeof(newp) - 1); newp[sizeof(newp) - 1] = 0;
+  if (l && newp[l - 1] != '/') strcat(newp, "/");
+  strncat(newp, name, sizeof(newp) - strlen(newp) - 1);
+  if (fs_mkdir(newp)) { show_error(error_description); return; }
+  relist(name, 0);
+}
+
+void toggle_show_all(void) {
+  list_launchable_only ^= 1;
+  display_path(path);
+  relist(dir_items ? entries[file_selected].filename : 0, 0);
 }
 
 void refresh_device(void) {
@@ -743,8 +859,9 @@ void explorer_init(void) {
     refresh_device();
 }
 
-void explorer_handle_key(char c) {
+void explorer_handle_key(uint8_t c) {
   if (c) initial_key = c;
+  if (c && msg_shown) clear_message();
   switch (c) {
     case 0x01:
       show_info();
@@ -757,6 +874,18 @@ void explorer_handle_key(char c) {
       break;
     case 0x04:
       show_recent();
+      break;
+    case 0x81:
+      delete_selected();
+      break;
+    case 0x82:
+      rename_selected();
+      break;
+    case 0x83:
+      mkdir_prompt();
+      break;
+    case 0x84:
+      toggle_show_all();
       break;
     case 0x11:
       select_next(1);
@@ -782,6 +911,7 @@ void explorer_handle_key(char c) {
 void explorer_poll(void) {
   uint8_t prev_wifi_status = wifi_status;
   menu_poll++;
+  if (key_shift != footer_shifted) draw_footer(key_shift);
   char c;
   char attr;
   if (menu_poll == 250) {              // inkey() scans are ~0.5 ms: 8 Hz status, 4 Hz blink

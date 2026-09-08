@@ -227,13 +227,15 @@ static void dir_sort(DIR_ENTRY *e, uint16_t n) {
   }
 }
 
+uint8_t list_launchable_only = 1;
+
 uint8_t list_dir(const char *path, uint16_t *entries_cnt, DIR_ENTRY *entries) {
   uint8_t st[4];
   uint8_t rec[55];
   uint16_t n = 0;
 
   uc_cmd(cmdX_SETSORT);
-  uc_wr(0x03);                       // bit0 sort, bit1 launchable-only
+  uc_wr(list_launchable_only ? 0x03 : 0x01);   // bit0 sort (device ignores), bit1 launchable-only
   uc_cmd(cmdREADDIR);
   uc_wstr(path);
   uc_status4(st);
@@ -380,6 +382,18 @@ uint8_t get_mounts(char *buf, uint8_t max) {
   }
   buf[max - 1] = 0;
   return lines;
+}
+
+static uint8_t simple_cmd_done(void) {
+  uint8_t st[4];
+  uc_status4(st);
+  return check_error(st) ? 1 : 0;
+}
+
+uint8_t fs_unlink(const char *path) { uc_cmd(cmdUNLINK); uc_wstr(path); return simple_cmd_done(); }
+uint8_t fs_mkdir(const char *path)  { uc_cmd(cmdMKDIR);  uc_wstr(path); return simple_cmd_done(); }
+uint8_t fs_rename(const char *old_path, const char *new_path) {
+  uc_cmd(cmdRENAME); uc_wstr(old_path); uc_wstr(new_path); return simple_cmd_done();
 }
 
 static void get_uppercase_ext(const char *path, char *ext) {

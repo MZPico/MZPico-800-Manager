@@ -36,6 +36,7 @@ static uint8_t scan_stable;      // identical scans in a row
 static uint8_t rep_counter;      // windows until the next (auto)repeat
 static uint8_t held_key;         // key reported at the last new press (0 = none / F-key)
 static uint8_t key_any;          // last evaluation saw a key down
+uint8_t key_shift;               // SHIFT is down (from the last scan)
 
 /* multiplication by 40
  * to be called from assembly code
@@ -431,8 +432,12 @@ _sm_settle:
     pop bc
     ld (hl), a
     ld a, b
-    cp 2                 ; column 8 (strobe 0xf8): keep BREAK only
+    cp 2                 ; column 8 (strobe 0xf8): note SHIFT, keep BREAK only
     jr nz, _sm_nomask
+    ld a, (hl)
+    and 1
+    xor 1
+    ld (_key_shift), a
     ld a, (hl)
     or 0x7f
     ld (hl), a
@@ -518,7 +523,7 @@ uint8_t inkey(void) {
   if (f & 4) {
     memcpy(scan_last, scan_cur, 10);
     rep_counter = KEY_REPEAT_DELAY;
-    if (f & 8) { held_key = 0; return map_fmask((uint8_t)~scan_cur[9]); }
+    if (f & 8) { held_key = 0; return map_fmask((uint8_t)~scan_cur[9]) + (key_shift ? 0x80 : 0); }   // SHIFT+F1..F5 = 0x81..0x85 (never ASCII: CR is 0x0A on some z88dk builds)
     if (f & 16) { held_key = 0; return 0x1b; }   // BREAK = ESC: the ROM decoder returns 0 for it, BASIC synthesizes 0x1B too
     held_key = getk();                   // ROM decode of the key just pressed
     return held_key;
@@ -536,6 +541,39 @@ uint8_t inkey(void) {
 void key_release(void) {
   console_init();
   do { inkey(); } while (key_any || scan_stable);
+}
+
+// Line editor at (x,y), width w: edits buf (max chars incl. NUL) with a
+// cursor: left/right move, HOME to the start, CLR empties, DEL deletes the
+// character left of the cursor, INST inserts a space, printable keys insert.
+// CR accepts (returns 1), ESC cancels (0). Sharp ASCII control codes.
+uint8_t input_line(uint8_t x, uint8_t y, uint8_t w, char *buf, uint8_t max) {
+  uint8_t k, i, n = strlen(buf), c = n;
+  key_release();
+  for (;;) {
+    put_multi_char_xy(x, y, ' ', w);
+    put_multi_attr_xy(x, y, 0x70, w);
+    put_str_xy(x, y, buf);
+    if (c < w) put_char_attr_xy(x + c, y, c < n ? buf[c] : ' ', 0x16);
+    while (!(k = inkey()));
+    if (k == 0x0d || k == 0x0a) return 1;
+    if (k == 0x1b) return 0;
+    if (k == 0x14) { if (c) c--; continue; }                       // left
+    if (k == 0x13) { if (c < n) c++; continue; }                   // right
+    if (k == 0x15) { c = 0; continue; }                            // HOME
+    if (k == 0x16) { n = c = 0; buf[0] = 0; continue; }            // CLR
+    // DEL and INST reach getk() as the raw codes 0x60 / 0x61 (measured on
+    // the MZ-800: z88dk's display-code conversion leaves them alone)
+    if (k == 0x60 || k == 0x10 || k == 0x7f || k == 0x08) {        // DEL: left of cursor
+      if (c) { for (i = c - 1; i < n; i++) buf[i] = buf[i + 1]; n--; c--; }
+      continue;
+    }
+    if (k == 0x61 || k == 0x18) k = ' ';                           // INST: insert a space
+    if (k >= 0x20 && k < 0x7f) {
+      if (n < max - 1 && n < w) { for (i = n; i > c; i--) buf[i] = buf[i - 1]; buf[c++] = (char)k; buf[++n] = 0; }
+      continue;
+    }
+  }
 }
 
 uint8_t wait_key(void) {

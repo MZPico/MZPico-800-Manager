@@ -21,6 +21,9 @@
 #define cmdCHDIR     0x21
 #define cmdGETCWD    0x22
 #define cmdSTAT      0x30
+#define cmdUNLINK    0x31
+#define cmdRENAME    0x34
+#define cmdMKDIR     0x40
 #define cmdREADDIR   0x41
 #define cmdNEXT      0x43
 #define cmdOPEN      0x50
@@ -56,7 +59,7 @@
 #define DEVICE_LN 8
 // Listing cap shared by list_dir() and the explorer's entries[]: 37 bytes each,
 // and the explorer must keep a few KB between its BSS and the stack at 0xD000
-#define MAX_DIR_ENTRIES 700
+#define MAX_DIR_ENTRIES 600
 
 #define MAX_CONFIG_KEY_LENGTH 16
 #define MAX_CONFIG_VALUE_LENGTH 64
@@ -95,7 +98,11 @@ void uc_status4(uint8_t *status);          // STSR, then the 4 status bytes
 void uc_read(uint8_t *dst, uint16_t n);    // n data-port bytes via INIR
 void uc_wstr(const char *s);               // string parameter, 0x0D terminated
 
+extern uint8_t list_launchable_only;   // list_dir(): 1 = MZF/M12/DSK/MZQ + dirs, 0 = everything
 uint8_t list_dir(const char *path, uint16_t *entries_cnt, DIR_ENTRY *entries);
+uint8_t fs_unlink(const char *path);
+uint8_t fs_rename(const char *old_path, const char *new_path);
+uint8_t fs_mkdir(const char *path);
 uint8_t list_dev(uint16_t *entries_cnt, DEV_ENTRY *entries);
 uint8_t get_config(const char *section, uint16_t *entries_cnt, ConfigEntry *entries);
 uint8_t get_wifi_status(void);

@@ -20,13 +20,7 @@ void draw_main_frame(void) {
   put_str_attr_xy(13, 0,  "MZPico Explorer", 0x70);
   put_char_attr_xy(12, 0, 0xfe, 0x01);
   put_char_attr_xy(28, 0, 0xfd, 0x01);
-  put_str_attr_xy(0, 24, "        Inf    Dev    Mnt    Rec    Quit", 0x70);
-  put_str_attr_xy(0, 24, "\xc1\xc2\xc3\xc4", 0x60);
-  put_str_attr_xy(5, 24, "F1", 0x06);
-  put_str_attr_xy(12, 24, "F2", 0x06);
-  put_str_attr_xy(19, 24, "F3", 0x06);
-  put_str_attr_xy(26, 24, "F4", 0x06);
-  put_str_attr_xy(33, 24, "F5", 0x06);
+  draw_footer(0);
   for (i=2; i<24; i++) {
     put_char_attr_xy(0, i, ' ', 0x05);
     put_char_attr_xy(39, i, ' ', 0x05);
@@ -58,6 +52,7 @@ void main(void) {
       explorer_handle_key(c);
       switch (c) {
         case 5:
+        case 0x85:
           mount_entry("@menu");
           beep();
           read_and_execute();

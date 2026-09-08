@@ -44,6 +44,8 @@ void scroll_up(uint8_t first, uint8_t number);
 uint8_t inkey(void);
 uint8_t wait_key(void);   // all keys up, then a new press: returns it
 void key_release(void);   // all keys up (no autorepeat leaks into the caller)
+uint8_t input_line(uint8_t x, uint8_t y, uint8_t w, char *buf, uint8_t max); // CR=1 ESC=0
+extern uint8_t key_shift;  // SHIFT currently down
 void beep(void);
 void loading_screen(const char* name);
 void get_uppercase_extension(const char* filename, char* extension);
