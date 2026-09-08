@@ -165,8 +165,8 @@ static const char *cloud_text(uint8_t code) {
   }
 }
 
-// Waits out an asynchronous (cloud) command - with an activity indicator
-// on the bottom line and ESC to stop waiting (the device finishes the
+// Waits out an asynchronous (cloud) command - with a spinner in the top
+// right corner (beside the WiFi icon) and ESC to stop waiting (the device finishes the
 // transfer on its own and answers "busy" until then) - then returns
 // nonzero and fills error_description when the status reports ERROR
 static uint8_t check_error(uint8_t *st) {
@@ -174,15 +174,15 @@ static uint8_t check_error(uint8_t *st) {
   uint8_t n = 0;
   while (st[0] & UC_ST_INPROG) {
     if (inkey() == 0x1b) {
-      put_multi_char_xy(11, 23, ' ', 28);
+      put_char_attr_xy(39, 0, ' ', 0x70);
       strcpy(error_description, "Cancelled (device busy)");
       return 0xfe;
     }
-    if ((n & 7) == 0) { put_str_xy(11, 23, "cloud "); put_char_attr_xy(17, 23, spin[(n >> 3) & 3], 0x61); }
+    if ((n & 7) == 0) put_char_attr_xy(39, 0, spin[(n >> 3) & 3], 0x60);   // top right, beside the WiFi icon
     n++;
     uc_status4(st);
   }
-  if (n) put_multi_char_xy(11, 23, ' ', 28);
+  if (n) put_char_attr_xy(39, 0, ' ', 0x70);
   if (!(st[0] & UC_ST_ERROR)) return 0;
   switch (st[2]) {
     case 1: strcpy(error_description, "Not implemented"); break;
