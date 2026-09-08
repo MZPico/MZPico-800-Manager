@@ -404,6 +404,7 @@ void draw_footer(uint8_t shifted) {
 }
 
 void show_info(void);
+static void selected_full(char *buf, size_t max);
 void execute_selection(void) {
   char last_dir[32];
   char *filename;
@@ -564,7 +565,8 @@ void show_info(void) {
   size_t dir_len;
   DIR_ENTRY *e = dir_items ? &entries[file_selected] : 0;
 
-  overlay_open(" File info ", " ESC ", 8, 15);
+  uint8_t on_cloud = e && !e->isDir && !strncmp(path, "cloud:", 6);
+  overlay_open(" File info ", on_cloud ? " S save to card  ESC " : " ESC ", 8, 15);
 
   info_line(9, "Name: ", e ? e->filename : "-");
 
@@ -617,8 +619,19 @@ void show_info(void) {
     path[dir_len] = 0;
   }
 
-  wait_key();
+  i = wait_key();
   overlay_close();
+  if (on_cloud && (i == 'S' || i == 's')) {
+    char full[160];
+    char dst[48];
+    const char *vol = has_volume("sd") ? "sd:/" : "flash:/";
+    if (strlen(vol) + strlen(e->filename) >= sizeof(dst)) { show_error("Name too long"); return; }
+    strcpy(dst, vol); strcat(dst, e->filename);
+    selected_full(full, sizeof(full));
+    if (copy_file(full, dst)) { show_error(error_description); return; }
+    strcpy(dst, "Saved to "); strcat(dst, vol);
+    show_error(dst);
+  }
 }
 
 // F3: mount manager. Shows what is in floppy drives 1-4 and the Quick
@@ -791,6 +804,7 @@ void add_to_menu(void) {
   get_uppercase_extension(e->filename, ext);
   if (strcmp(ext, "MZF") && strcmp(ext, "M12") && strcmp(ext, "DSK") && strcmp(ext, "MZQ")) { show_error("Not launchable"); return; }
   selected_full(full, sizeof(full));
+  if (strncmp(full, "sd:", 3) && strncmp(full, "flash:", 6)) { show_error("Only sd: and flash: files"); return; }
   if (strlen(full) > 40) { show_error("Path too long for the menu (40)"); return; }
   overlay_open(" Add to menu ", " ESC ", 8, 15);
   info_line(9, "", tail_of(e->filename, 30));

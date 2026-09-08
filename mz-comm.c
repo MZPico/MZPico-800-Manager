@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "mz-comm.h"
+#include "console.h"
 
 #define MZF_HEADER_START 0x10f0
 #define MZF_BODY_TARGET 0x1200
@@ -164,10 +165,24 @@ static const char *cloud_text(uint8_t code) {
   }
 }
 
-// Waits out an asynchronous (cloud) command, then returns nonzero and
-// fills error_description when the status reports ERROR
+// Waits out an asynchronous (cloud) command - with an activity indicator
+// on the bottom line and ESC to stop waiting (the device finishes the
+// transfer on its own and answers "busy" until then) - then returns
+// nonzero and fills error_description when the status reports ERROR
 static uint8_t check_error(uint8_t *st) {
-  while (st[0] & UC_ST_INPROG) uc_status4(st);
+  static const char spin[] = "|/-\\";
+  uint8_t n = 0;
+  while (st[0] & UC_ST_INPROG) {
+    if (inkey() == 0x1b) {
+      put_multi_char_xy(11, 23, ' ', 28);
+      strcpy(error_description, "Cancelled (device busy)");
+      return 0xfe;
+    }
+    if ((n & 7) == 0) { put_str_xy(11, 23, "cloud "); put_char_attr_xy(17, 23, spin[(n >> 3) & 3], 0x61); }
+    n++;
+    uc_status4(st);
+  }
+  if (n) put_multi_char_xy(11, 23, ' ', 28);
   if (!(st[0] & UC_ST_ERROR)) return 0;
   switch (st[2]) {
     case 1: strcpy(error_description, "Not implemented"); break;
@@ -394,6 +409,9 @@ uint8_t fs_unlink(const char *path) { uc_cmd(cmdUNLINK); uc_wstr(path); return s
 uint8_t fs_mkdir(const char *path)  { uc_cmd(cmdMKDIR);  uc_wstr(path); return simple_cmd_done(); }
 uint8_t set_config(const char *section, const char *key, const char *value) {
   uc_cmd(cmdX_SETCONFIG); uc_wstr(section); uc_wstr(key); uc_wstr(value); return simple_cmd_done();
+}
+uint8_t copy_file(const char *src, const char *dst) {
+  uc_cmd(cmdX_COPY); uc_wstr(src); uc_wstr(dst); return simple_cmd_done();
 }
 uint8_t fs_rename(const char *old_path, const char *new_path) {
   uc_cmd(cmdRENAME); uc_wstr(old_path); uc_wstr(new_path); return simple_cmd_done();
