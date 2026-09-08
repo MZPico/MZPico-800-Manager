@@ -393,7 +393,7 @@ static void launch_full(const char *full) {
 static uint8_t footer_shifted;
 void draw_footer(uint8_t shifted) {
   footer_shifted = shifted;
-  put_str_attr_xy(0, 24, shifted ? "        Del    Ren    Mkd    All    Quit"
+  put_str_attr_xy(0, 24, shifted ? "        Del    Ren    Mkd    All    Menu"
                                  : "        Inf    Dev    Mnt    Rec    Quit", 0x70);
   put_str_attr_xy(0, 24, "\xc1\xc2\xc3\xc4", 0x60);
   put_str_attr_xy(5, 24, "F1", 0x06);
@@ -775,6 +775,45 @@ void mkdir_prompt(void) {
   relist(name, 0);
 }
 
+// SHIFT+F5: add the selected launchable file to the boot menu - a key
+// letter, a description (prefilled from the name), then SETCONFIG writes
+// key_<x>=<desc>|<path> into [menu] of the ini that was loaded (sd:/ or
+// flash:/); the menu shows it at its next start.
+void add_to_menu(void) {
+  char full[160];
+  char desc[25];
+  char keyname[8];
+  char value[64];
+  char ext[16];
+  uint8_t k, i, ok;
+  DIR_ENTRY *e = dir_items ? &entries[file_selected] : 0;
+  if (!e || e->isDir) return;
+  get_uppercase_extension(e->filename, ext);
+  if (strcmp(ext, "MZF") && strcmp(ext, "M12") && strcmp(ext, "DSK") && strcmp(ext, "MZQ")) { show_error("Not launchable"); return; }
+  selected_full(full, sizeof(full));
+  if (strlen(full) > 40) { show_error("Path too long for the menu (40)"); return; }
+  overlay_open(" Add to menu ", " ESC ", 8, 15);
+  info_line(9, "", tail_of(e->filename, 30));
+  info_line(10, "Key: ", "press A-Z or 0-9");
+  k = wait_key();
+  if (k >= 'a' && k <= 'z') k -= 32;
+  if (!((k >= 'A' && k <= 'Z') || (k >= '0' && k <= '9'))) { overlay_close(); return; }
+  if (k == 'F' || k == 'Q' || k == 'C' || k == 'M') { overlay_close(); show_error("F Q C M are built-in keys"); return; }
+  keyname[0] = k; keyname[1] = 0;
+  info_line(10, "Key: ", keyname);
+  for (i = 0; i < sizeof(desc) - 1 && e->filename[i] && e->filename[i] != '.'; i++) desc[i] = e->filename[i];
+  desc[i] = 0;
+  info_line(11, "Name:", "");
+  ok = input_line(INFO_X + 2, 12, 24, desc, sizeof(desc));
+  overlay_close();
+  if (!ok || !desc[0]) return;
+  strcpy(keyname, "key_"); keyname[4] = (k >= 'A' && k <= 'Z') ? k + 32 : k; keyname[5] = 0;
+  strcpy(value, desc); strcat(value, "|"); strcat(value, full);
+  if (set_config("menu", keyname, value)) { show_error(error_description); return; }
+  strcpy(value, "Added to menu as "); value[17] = k; value[18] = 0;
+  show_error(value);
+}
+
 void toggle_show_all(void) {
   list_launchable_only ^= 1;
   display_path(path);
@@ -886,6 +925,9 @@ void explorer_handle_key(uint8_t c) {
       break;
     case 0x84:
       toggle_show_all();
+      break;
+    case 0x85:
+      add_to_menu();
       break;
     case 0x11:
       select_next(1);

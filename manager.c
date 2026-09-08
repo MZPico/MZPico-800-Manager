@@ -52,7 +52,6 @@ void main(void) {
       explorer_handle_key(c);
       switch (c) {
         case 5:
-        case 0x85:
           mount_entry("@menu");
           beep();
           read_and_execute();

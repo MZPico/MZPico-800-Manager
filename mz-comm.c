@@ -392,6 +392,9 @@ static uint8_t simple_cmd_done(void) {
 
 uint8_t fs_unlink(const char *path) { uc_cmd(cmdUNLINK); uc_wstr(path); return simple_cmd_done(); }
 uint8_t fs_mkdir(const char *path)  { uc_cmd(cmdMKDIR);  uc_wstr(path); return simple_cmd_done(); }
+uint8_t set_config(const char *section, const char *key, const char *value) {
+  uc_cmd(cmdX_SETCONFIG); uc_wstr(section); uc_wstr(key); uc_wstr(value); return simple_cmd_done();
+}
 uint8_t fs_rename(const char *old_path, const char *new_path) {
   uc_cmd(cmdRENAME); uc_wstr(old_path); uc_wstr(new_path); return simple_cmd_done();
 }

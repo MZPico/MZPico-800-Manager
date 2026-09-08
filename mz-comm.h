@@ -38,6 +38,7 @@
 #define cmdX_SETSORT    0x96
 #define cmdX_SERVEDSUM  0x97
 #define cmdX_MOUNTS     0x98
+#define cmdX_SETCONFIG  0x99
 
 #define UC_FA_READ 0x01
 #define UC_FA_CREATE_WRITE 0x0A   // FA_WRITE | FA_CREATE_ALWAYS
@@ -103,6 +104,7 @@ uint8_t list_dir(const char *path, uint16_t *entries_cnt, DIR_ENTRY *entries);
 uint8_t fs_unlink(const char *path);
 uint8_t fs_rename(const char *old_path, const char *new_path);
 uint8_t fs_mkdir(const char *path);
+uint8_t set_config(const char *section, const char *key, const char *value); // edits the loaded mzpico.ini; empty value deletes
 uint8_t list_dev(uint16_t *entries_cnt, DEV_ENTRY *entries);
 uint8_t get_config(const char *section, uint16_t *entries_cnt, ConfigEntry *entries);
 uint8_t get_wifi_status(void);
