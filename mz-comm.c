@@ -537,16 +537,281 @@ _read_and_execute_end:
   __endasm;
 }
 
-void execute_floppy(void) __naked {
+// ---------------- ROM boot bridge (F / Q / C with error return) ----------------
+// The 9Z-504M ROM boot routines report errors by printing a message (DE)
+// and dropping into the ROM IPL menu, from which only a reset leads back
+// here. Their real work (sector reads, QD sync, the tape monitor calls)
+// stays in ROM; only the short control sequences that hold the error exits
+// are replicated below, with those exits pointed at our handler:
+//   F: CALL 0xE44A - the routine stores its return address at 0xCEFE and
+//      every error path returns through it with DE = message.
+//   Q: E9B7..EA05 transcribed; the early "JR C,EA34", the wrong-type exit
+//      and the pushed return address (EA04, reached through F244 RET C) all
+//      become the handler.
+//   C: E945..E9B6 transcribed; the two "JP C,E9AA" and the E9AA block end
+//      in the handler.
+// FD and tape load the program body over 0x1200 (this program), so the
+// bridge runs relocated at ROM_BRIDGE (below the FD work table at 0xCEE9)
+// and the handler reloads @menu itself through port 0x50. The message
+// pointer is left for the menu at ROM_ERR_CELL: "MZ" magic, then DE.
+// Entry: ROM_BRIDGE + 3*kind (jump table). Bytes at the three ROM entries
+// are checked first; a foreign ROM falls back to the plain jump.
+#define ROM_BRIDGE 0xCD00
+#define ROM_ERR_CELL 0xCCF8
+#define REL(l) ROM_BRIDGE + l - _rb_start   /* no outer parentheses: ld hl,(x) would be an indirect load */
+
+// Per-kind fingerprints of the ROM code the bridge relies on. Checked
+// against the ROMs mz800emu ships (9Z-504M; JSS 1.3, 1.5C, 1.6A, 1.8C;
+// Willy's): the FD boot and its 0xCEFE error return are identical in all
+// of them, the tape routine E945..E9B6 in 9Z-504M and JSS (Willy's
+// rewrote it from E97D on), the QD boot at E9B7 only in 9Z-504M. Any
+// other ROM gets the plain jump (errors end in the ROM menu, as before).
+static uint8_t rom_match(uint16_t addr, const uint8_t *sig, uint8_t n) {
+  const uint8_t *p = (const uint8_t *)addr;
+  while (n--) if (*p++ != *sig++) return 0;
+  return 1;
+}
+
+static uint8_t rom_supported(uint8_t kind) {
+  static const uint8_t fd_e44a[] = {0xE3, 0x22, 0xFE, 0xCE, 0xCD, 0xD5, 0xE8};
+  static const uint8_t fd_e4c2[] = {0x31, 0xEE, 0x10, 0x2A, 0xFE, 0xCE, 0xE3, 0xC9};
+  static const uint8_t qd_e9b7[] = {0xCD, 0x13, 0xEB, 0x3E, 0x02, 0x20};
+  static const uint8_t qd_e9e0[] = {0xCD, 0xF7, 0xEE, 0xDA, 0x02, 0xF2};
+  static const uint8_t qd_e9fa[] = {0xD5, 0x3E, 0x06, 0x32, 0x30, 0x11};
+  static const uint8_t qd_f244[] = {0x3E, 0x06, 0x32, 0x30, 0x11, 0xCD};
+  static const uint8_t cmt_e945[] = {0x21, 0x02, 0xE0, 0x7E, 0xE6, 0x10, 0x20};
+  static const uint8_t cmt_e97c[] = {0xCD, 0x27, 0x00, 0xDA, 0xAA, 0xE9};   // CALL 0027 / JP C,E9AA
+  static const uint8_t cmt_e9a4[] = {0x21, 0x02, 0x11, 0xC3, 0xFC, 0xEC};
+  static const uint8_t cmt_e9aa[] = {0xFE, 0x02, 0x11, 0x98, 0xED, 0x28};
+  switch (kind) {
+    case 0: return rom_match(0xE44A, fd_e44a, 7) && rom_match(0xE4C2, fd_e4c2, 8);
+    case 1: return rom_match(0xE9B7, qd_e9b7, 6) && rom_match(0xE9E0, qd_e9e0, 6) &&
+                   rom_match(0xE9FA, qd_e9fa, 6) && rom_match(0xF244, qd_f244, 6);
+    default: return rom_match(0xE945, cmt_e945, 7) && rom_match(0xE97C, cmt_e97c, 6) &&
+                    rom_match(0xE9A4, cmt_e9a4, 6) && rom_match(0xE9AA, cmt_e9aa, 6);
+  }
+}
+
+static void rom_boot_bridge(uint8_t kind) __naked {
   __asm
+    push iy
+    ld iy, 4
+    add iy, sp
+    ld a, (iy+0)
+    pop iy
+    ld hl, _rb_start
+    ld de, ROM_BRIDGE
+    ld bc, _rb_end - _rb_start
+    ldir
+    ld l, a
+    ld h, 0
+    ld b, h
+    ld c, l
+    add hl, bc          ; kind*2
+    add hl, bc          ; kind*3
+    ld de, ROM_BRIDGE
+    add hl, de
+    jp (hl)             ; jump table entry
+
+_rb_start:
+    jp REL(_rb_fd)
+    jp REL(_rb_qd)
+    jp REL(_rb_tape)
+
+_rb_fd:
+    ld sp, 0x10F0
+    call 0xEA59
+    call 0xE44A
+    jp REL(_rb_err)
+
+_rb_qd:
+    ld sp, 0x10F0
+    call 0xEB13
+    ld a, 2
+    jp nz, REL(_rb_tape_err)
+    call 0xEEEC
+    call 0xEF27
+    ld de, 0xEDA7
+    jp c, REL(_rb_err)
+    call 0xEA59
+    ld a, 0x0D
+    ld (0x11A3), a
+    call 0xF25F
+    ld a, 1
+    ld (0x113A), a
+    ld hl, REL(_rb_err)
+    ld sp, 0x10EE
+    ex (sp), hl
+    call 0xEEF7
+    jp c, 0xF202
+    ld a, (0x10F0)
+    cp 1
+    ld de, 0xEE27
+    jr nz, _rb_qd_bad
+    ld de, 0xED88
+    rst 0x18
+    jp 0xEEC2
+_rb_qd_bad:
+    push de
+    ld a, 6
+    ld (0x1130), a
+    call 0xE010
+    pop de
+    jp REL(_rb_err)
+
+_rb_tape:
+    ld sp, 0x10F0
+    ld hl, 0xE002
+    ld a, (hl)
+    and 0x10
+    jr nz, _rb_t_go
+    inc hl
+    ld a, 6
+    ld (hl), a
+    inc a
+    ld (hl), a
+    dec hl
+    ld a, (hl)
+    and 0x10
+    jr nz, _rb_t_go
+    call 0xEA59
+    call 0x0006
+    call 0x0006
+    ld de, 0xED98
+    call 0xEA4E
+_rb_t_wait:
+    call 0x001E
+    jr z, _rb_t_nodata
+    ld a, (hl)
+    and 0x10
+    jr z, _rb_t_wait
+_rb_t_go:
+    call 0xEA59
+    call 0x0006
+    ld de, 0xEDC3
+    rst 0x18
+    call 0x0027
+    jr c, _rb_tape_err
+    call 0xEA59
+    ld de, 0xED88
+    rst 0x18
+    ld de, 0x10F1
+    rst 0x18
+    ld hl, (0x1104)
+    exx
+    ld hl, 0x1200
+    ld (0x1104), hl
+    call 0x002A
+    jr c, _rb_tape_err
+    ld bc, 0x0100
+    exx
+    ld (0x1104), hl
+    ld hl, 0x1102
+    jp 0xECFC
+_rb_t_nodata:
+    ld de, 0xED98
+    jr _rb_err
+_rb_tape_err:
+    cp 2
+    ld de, 0xED98
+    jr z, _rb_err
+    ld de, 0xEE04
+
+_rb_err:
+    ; DE = ROM message. Leave it for the menu, reload @menu through the
+    ; device (this program at 0x1200 may be partly overwritten).
+    ld sp, 0x10F0
+    ld (ROM_ERR_CELL + 2), de
+    ld a, 0x4D
+    ld (ROM_ERR_CELL), a
+    ld a, 0x5A
+    ld (ROM_ERR_CELL + 1), a
+    ld a, cmdCLOSE
+    out (UC_CMD_PORT), a
+    ld a, cmdOPEN
+    out (UC_CMD_PORT), a
+    ld a, UC_FA_READ
+    out (UC_DATA_PORT), a
+    ld a, 0x40
+    out (UC_DATA_PORT), a
+    ld a, 0x6D
+    out (UC_DATA_PORT), a
+    ld a, 0x65
+    out (UC_DATA_PORT), a
+    ld a, 0x6E
+    out (UC_DATA_PORT), a
+    ld a, 0x75
+    out (UC_DATA_PORT), a
+    ld a, 0x0D
+    out (UC_DATA_PORT), a
+    ld b, 128
+    ld c, UC_DATA_PORT
+    ld hl, MZF_HEADER_START
+    inir
+    ld hl, MZF_BODY_TARGET
+    ld de, (MZF_SIZE)
+_rb_ld_blocks:
+    ld b, 0
+    ld a, d
+    or a
+    jr z, _rb_ld_rest
+    inir
+    dec d
+    jr _rb_ld_blocks
+_rb_ld_rest:
+    ld b, e
+    or b
+    jr z, _rb_ld_done
+    inir
+_rb_ld_done:
+    ld a, cmdCLOSE
+    out (UC_CMD_PORT), a
+    exx
+    ld bc, 0x0600
+    exx
+    ld hl, MZF_SIZE
     ld sp, MZF_HEADER_START
-    jp 0xe44a
+    jp 0xECFC
+_rb_end:
   __endasm;
 }
 
-void execute_quickdisk(void) __naked {
+static void rom_boot_plain(uint8_t kind) __naked {
   __asm
+    push iy
+    ld iy, 4
+    add iy, sp
+    ld a, (iy+0)
+    pop iy
     ld sp, MZF_HEADER_START
-    jp 0xe9b7
+    or a
+    jp z, 0xE44A
+    dec a
+    jp z, 0xE9B7
+    jp 0xE945
   __endasm;
 }
+
+// Hand over to the ROM boot for kind 0 = floppy, 1 = Quick Disk, 2 = tape.
+// Never returns; a ROM error restarts the menu with the message in
+// ROM_ERR_CELL (bridge) or lands in the ROM menu (unknown ROM).
+void rom_boot(uint8_t kind) {
+  if (rom_supported(kind)) rom_boot_bridge(kind);
+  else rom_boot_plain(kind);
+}
+
+// Message left by the ROM boot bridge: pointer to a Sharp-ASCII string in
+// ROM (0x0D terminated), or 0. Clears the cell.
+const char *rom_boot_error(void) {
+  uint8_t *c = (uint8_t *)ROM_ERR_CELL;
+  const char *msg;
+  if (c[0] != 0x4D || c[1] != 0x5A) return 0;
+  msg = (const char *)(c[2] | (c[3] << 8));
+  c[0] = 0;
+  if ((uint16_t)msg < 0xE000) return 0;
+  return msg;
+}
+
+void execute_floppy(void) { rom_boot(0); }
+void execute_quickdisk(void) { rom_boot(1); }
+void execute_tape(void) { rom_boot(2); }

@@ -120,5 +120,7 @@ uint8_t mount_entry(const char *path);
 void read_and_execute(void);
 void execute_floppy(void);
 void execute_quickdisk(void);
+void execute_tape(void);
+const char *rom_boot_error(void);  // ROM message left by a failed F/Q/C boot, 0 if none
 
 #endif

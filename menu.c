@@ -63,10 +63,9 @@ uint8_t execute_qd(void) {
   execute_quickdisk();
 }
 
-uint8_t execute_tape(void) __naked {
-  __asm
-    jp 0xe945 
-  __endasm
+uint8_t execute_tape_entry(void) {
+  execute_tape();
+  return 0;
 }
 
 uint8_t execute_monitor(void) __naked {
@@ -201,7 +200,7 @@ void init_menu(void) {
   reset_menu();
   add_menu_entry('F', "Floppy disk", fdc_enabled, execute_fdc);
   add_menu_entry('Q', "Quick disk", qd_enabled, execute_qd);
-  add_menu_entry('C', "Cassette tape", NULL, execute_tape);
+  add_menu_entry('C', "Cassette tape", NULL, execute_tape_entry);
   add_menu_entry('M', "Monitor", NULL, execute_monitor);
 
   get_config("menu", &menu_entries, config);
@@ -227,6 +226,27 @@ void init_menu(void) {
   }
 }
 
+static const char *title_msg;
+
+// Print a Sharp-ASCII ROM string (0x0D terminated) through the monitor at
+// column x, row y - ROM messages use Sharp lowercase codes our table lacks
+static void put_rom_str_xy(uint8_t x, uint8_t y, const char *s) __naked {
+  __asm
+    push iy
+    ld iy, 4
+    add iy, sp
+    ld a, (iy+4)
+    ld (0x1171), a
+    ld a, (iy+2)
+    ld (0x1172), a
+    ld e, (iy+0)
+    ld d, (iy+1)
+    call 0x0015
+    pop iy
+    ret
+  __endasm;
+}
+
 void display_menu(void) {
   uint8_t col = 12;
 
@@ -235,7 +255,14 @@ void display_menu(void) {
   border(0);
   init_menu();
 
-  put_str_xy(col - 1, 2, "Get ready for MZPico");
+  // The ROM prints its title and every boot error the same way: clear,
+  // two newlines, 12 spaces, text (EA34/EA4E) - row 2, column 12, left
+  // aligned. Same here, for the title and for a ROM error replacing it.
+  if (title_msg) {
+    put_rom_str_xy(12, 2, title_msg);
+    title_msg = 0;
+  } else
+    put_str_xy(12, 2, "Make ready MZPico");
   put_str_xy(col, 4, "Please push key");
 
   int y = 6;
@@ -269,6 +296,7 @@ void execute_action_loop(void) {
 }
 
 void main(void) {
+  title_msg = rom_boot_error();   // before anything touches the stack region
   display_menu();
   execute_action_loop();
 }
