@@ -120,6 +120,7 @@ uint8_t mount_entry(const char *path);
 void read_and_execute(void);
 void execute_floppy(void);
 void execute_quickdisk(void);
+uint8_t qd_boot_supported(void);   // 0 on a ROM without the 9Z-504M QD driver (JSS, Willy)
 void execute_tape(void);
 const char *rom_boot_error(void);  // ROM message left by a failed F/Q/C boot, 0 if none
 

@@ -45,7 +45,7 @@ uint8_t execute_fdc(void) {
   execute_floppy();
 }
 
-uint8_t qd_enabled(void) {
+static uint8_t qd_present(void) {
   __asm
     call 0xeb13
     jr nz, @ret_false
@@ -57,6 +57,12 @@ uint8_t qd_enabled(void) {
     ld l, a
     ld h, 0
   __endasm
+}
+
+// The Q entry needs the 9Z-504M QD driver (EB13 is the presence check
+// only there) - hidden on other ROMs
+uint8_t qd_enabled(void) {
+  return qd_boot_supported() && qd_present();
 }
 
 uint8_t execute_qd(void) {

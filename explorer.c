@@ -369,8 +369,14 @@ static void run_mounted(const char *full) {
 // to validate, close, save the state, mount again for the loader.
 static void launch_full(const char *full) {
   char dir[128];
+  char ext[16];
   const char *slash = strrchr(full, '/');
   size_t dl = slash ? (size_t)(slash - full) : 0;
+  get_uppercase_extension(full, ext);
+  if (!strcmp(ext, "MZQ") && !qd_boot_supported()) {
+    show_error("QD boot needs the 9Z-504M ROM");
+    return;
+  }
   if (mount_entry(full)) {
     show_error(error_description);
     return;

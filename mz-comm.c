@@ -820,7 +820,15 @@ static void rom_boot_plain(uint8_t kind) __naked {
 // ROM_ERR_CELL (bridge) or lands in the ROM menu (unknown ROM).
 void rom_boot(uint8_t kind) {
   if (rom_supported(kind)) rom_boot_bridge(kind);
-  else rom_boot_plain(kind);
+  else if (kind != 1) rom_boot_plain(kind);
+  // QD on a ROM without the 9Z-504M driver: E9B7 is some other routine
+  // there (a RAM-disk probe on JSS, a message printer on Willy's; neither
+  // has a QD driver at all) - do nothing, the callers check first
+}
+
+// QD boot is possible only with the 9Z-504M QD driver in ROM
+uint8_t qd_boot_supported(void) {
+  return rom_supported(1);
 }
 
 // Message left by the ROM boot bridge: pointer to a Sharp-ASCII string in
