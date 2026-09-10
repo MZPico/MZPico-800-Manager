@@ -374,11 +374,15 @@ uint8_t write_file(const char *path, const uint8_t *buf, uint16_t n) {
 // DSK/MZQ image or a directory, session-only like the ini mounts
 uint8_t mount_into(uint8_t dev, const char *path) {
   uint8_t st[4];
+  uint8_t err;
   uc_cmd(cmdFDDMOUNT);
   uc_wr(dev);
   uc_wstr(path);
   uc_status4(st);
-  return check_error(st) ? 1 : 0;
+  err = check_error(st);
+  if (err == 1)   // NOT_IMPLEMENTED: the device is not in mzpico.ini
+    strcpy(error_description, dev == UC_DEV_QD ? "No [qd] in mzpico.ini" : "No [fdc] in mzpico.ini");
+  return err ? 1 : 0;
 }
 
 // Current mounts: lines "1:path" .. "4:path", "Q:path" (empty path = empty
