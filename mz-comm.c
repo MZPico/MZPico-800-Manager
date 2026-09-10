@@ -579,16 +579,11 @@ static uint8_t rom_supported(uint8_t kind) {
   static const uint8_t qd_e9e0[] = {0xCD, 0xF7, 0xEE, 0xDA, 0x02, 0xF2};
   static const uint8_t qd_e9fa[] = {0xD5, 0x3E, 0x06, 0x32, 0x30, 0x11};
   static const uint8_t qd_f244[] = {0x3E, 0x06, 0x32, 0x30, 0x11, 0xCD};
-  static const uint8_t cmt_e945[] = {0x21, 0x02, 0xE0, 0x7E, 0xE6, 0x10, 0x20};
-  static const uint8_t cmt_e97c[] = {0xCD, 0x27, 0x00, 0xDA, 0xAA, 0xE9};   // CALL 0027 / JP C,E9AA
-  static const uint8_t cmt_e9a4[] = {0x21, 0x02, 0x11, 0xC3, 0xFC, 0xEC};
-  static const uint8_t cmt_e9aa[] = {0xFE, 0x02, 0x11, 0x98, 0xED, 0x28};
   switch (kind) {
     case 0: return rom_match(0xE44A, fd_e44a, 7) && rom_match(0xE4C2, fd_e4c2, 8);
     case 1: return rom_match(0xE9B7, qd_e9b7, 6) && rom_match(0xE9E0, qd_e9e0, 6) &&
                    rom_match(0xE9FA, qd_e9fa, 6) && rom_match(0xF244, qd_f244, 6);
-    default: return rom_match(0xE945, cmt_e945, 7) && rom_match(0xE97C, cmt_e97c, 6) &&
-                    rom_match(0xE9A4, cmt_e9a4, 6) && rom_match(0xE9AA, cmt_e9aa, 6);
+    default: return 1;   // tape: monitor API + ECFC only, identical in every known ROM
   }
 }
 
@@ -660,6 +655,11 @@ _rb_qd_bad:
     jp REL(_rb_err)
 
 _rb_tape:
+    ; Tape: the ROM E-half is used only for ECFC (identical in every ROM
+    ; variant); screen output goes through the monitor (0x0012 PRNT with
+    ; the 0xC6 clear code, 0x000C space, 0x0018 message) and the message
+    ; texts live in this bridge - so this path works with any ROM that
+    ; keeps the standard monitor tape API (0x001E, 0x0027, 0x002A).
     ld sp, 0x10F0
     ld hl, 0xE002
     ld a, (hl)
@@ -674,11 +674,12 @@ _rb_tape:
     ld a, (hl)
     and 0x10
     jr nz, _rb_t_go
-    call 0xEA59
+    ld a, 0xC6
+    call 0x0012
     call 0x0006
     call 0x0006
-    ld de, 0xED98
-    call 0xEA4E
+    ld de, REL(_rb_msg_ready)
+    call REL(_rb_print12)
 _rb_t_wait:
     call 0x001E
     jr z, _rb_t_nodata
@@ -686,14 +687,16 @@ _rb_t_wait:
     and 0x10
     jr z, _rb_t_wait
 _rb_t_go:
-    call 0xEA59
+    ld a, 0xC6
+    call 0x0012
     call 0x0006
-    ld de, 0xEDC3
+    ld de, REL(_rb_msg_looking)
     rst 0x18
     call 0x0027
     jr c, _rb_tape_err
-    call 0xEA59
-    ld de, 0xED88
+    ld a, 0xC6
+    call 0x0012
+    ld de, REL(_rb_msg_loading)
     rst 0x18
     ld de, 0x10F1
     rst 0x18
@@ -709,13 +712,33 @@ _rb_t_go:
     ld hl, 0x1102
     jp 0xECFC
 _rb_t_nodata:
-    ld de, 0xED98
+    ld de, REL(_rb_msg_ready)
     jr _rb_err
 _rb_tape_err:
     cp 2
-    ld de, 0xED98
+    ld de, REL(_rb_msg_ready)
     jr z, _rb_err
-    ld de, 0xEE04
+    ld de, REL(_rb_msg_lderr)
+    jr _rb_err
+
+    ; 12 spaces, message (DE), newline - what the ROM does in EA4E
+_rb_print12:
+    ld b, 12
+_rb_sp:
+    call 0x000C
+    djnz _rb_sp
+    rst 0x18
+    jp 0x0006
+
+    ; Sharp-ASCII texts as the 9Z-504M ROM has them, 0x0D terminated
+_rb_msg_loading:
+    defb 0x49,0x50,0x4C,0x20,0xA6,0xA4,0x20,0xB8,0xB7,0xA1,0x9C,0xA6,0xB0,0x97,0x20,0x0D
+_rb_msg_ready:
+    defb 0x4D,0xA1,0xA9,0x92,0x20,0x9D,0x92,0xA1,0x9C,0xBD,0x20,0x43,0x4D,0x54,0x0D
+_rb_msg_looking:
+    defb 0x20,0x20,0x20,0x20,0x20,0x49,0x50,0x4C,0x20,0xA6,0xA4,0x20,0xB8,0xB7,0xB7,0xA9,0xA6,0xB0,0x97,0x20,0xAA,0xB7,0x9D,0x20,0xA1,0x20,0x9E,0x9D,0xB7,0x97,0x9D,0xA1,0xB3,0x0D
+_rb_msg_lderr:
+    defb 0x43,0x4D,0x54,0x3A,0x4C,0xB7,0xA1,0x9C,0xA6,0xB0,0x97,0x20,0x92,0x9D,0x9D,0xB7,0x9D,0x0D
 
 _rb_err:
     ; DE = ROM message. Leave it for the menu, reload @menu through the
@@ -808,7 +831,7 @@ const char *rom_boot_error(void) {
   if (c[0] != 0x4D || c[1] != 0x5A) return 0;
   msg = (const char *)(c[2] | (c[3] << 8));
   c[0] = 0;
-  if ((uint16_t)msg < 0xE000) return 0;
+  if ((uint16_t)msg < ROM_BRIDGE) return 0;   // ROM text or a text inside the bridge
   return msg;
 }
 
