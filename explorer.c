@@ -381,15 +381,22 @@ static void launch_full(const char *full) {
     show_error(error_description);
     return;
   }
-  uc_cmd(cmdCLOSE);
   if (dl >= sizeof(dir)) dl = sizeof(dir) - 1;
   memcpy(dir, full, dl);
   dir[dl] = 0;
   if (dl > 0 && dir[dl - 1] == ':') { dir[dl] = '/'; dir[dl + 1] = 0; }
-  remember_launch(dir, slash ? slash + 1 : full, full);
-  if (mount_entry(full)) {
-    show_error(error_description);
-    return;
+  if (!strcmp(ext, "DSK") || !strcmp(ext, "MZQ")) {
+    // FDDMOUNT is done; the state save does not disturb a drive mount
+    remember_launch(dir, slash ? slash + 1 : full, full);
+  } else {
+    // an MZF stays open for the loader and the state save would replace
+    // it (one open file on the device): close, save, open again
+    uc_cmd(cmdCLOSE);
+    remember_launch(dir, slash ? slash + 1 : full, full);
+    if (mount_entry(full)) {
+      show_error(error_description);
+      return;
+    }
   }
   clear_message();
   run_mounted(full);

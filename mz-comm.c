@@ -555,13 +555,16 @@ _read_and_execute_end:
 //   C: E945..E9B6 transcribed; the two "JP C,E9AA" and the E9AA block end
 //      in the handler.
 // FD and tape load the program body over 0x1200 (this program), so the
-// bridge runs relocated at ROM_BRIDGE (below the FD work table at 0xCEE9)
+// bridge runs relocated at ROM_BRIDGE (0xC200: the ROM keeps its FD work
+// table at 0xCEE9..0xCF1E and the QD directory buffer from 0xCD90 up, so
+// nothing above 0xC400 is safe - a bridge at 0xCD00 was overwritten by the
+// QD ready check and every MZQ boot ended in "Make ready QD")
 // and the handler reloads @menu itself through port 0x50. The message
 // pointer is left for the menu at ROM_ERR_CELL: "MZ" magic, then DE.
 // Entry: ROM_BRIDGE + 3*kind (jump table). Bytes at the three ROM entries
 // are checked first; a foreign ROM falls back to the plain jump.
-#define ROM_BRIDGE 0xCD00
-#define ROM_ERR_CELL 0xCCF8
+#define ROM_BRIDGE 0xC200
+#define ROM_ERR_CELL 0xC1F8
 #define REL(l) ROM_BRIDGE + l - _rb_start   /* no outer parentheses: ld hl,(x) would be an indirect load */
 
 // Per-kind fingerprints of the ROM code the bridge relies on. Checked
