@@ -274,7 +274,7 @@ uint8_t list_dir(const char *path, uint16_t *entries_cnt, DIR_ENTRY *entries) {
   }
   if (st[0] & UC_ST_STREAM) uc_cmd(cmdCLOSE); // more than we can hold
   *entries_cnt = n;
-  dir_sort(entries, n);
+  if (strncmp(path, "cloud:", 6)) dir_sort(entries, n);   // cloud listings keep the server's order
   return 0;
 }
 
